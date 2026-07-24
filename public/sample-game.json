@@ -1,0 +1,185 @@
+{
+  "title": "Sample Jeopardy Game",
+  "categories": [
+    {
+      "name": "World Capitals",
+      "questions": [
+        {
+          "value": 100,
+          "question": "This city is the capital of France.",
+          "answer": "What is Paris?"
+        },
+        {
+          "value": 200,
+          "question": "This city is the capital of Japan.",
+          "answer": "What is Tokyo?"
+        },
+        {
+          "value": 300,
+          "question": "This city is the capital of Brazil.",
+          "answer": "What is Brasília?"
+        },
+        {
+          "value": 400,
+          "question": "This city is the capital of Australia.",
+          "answer": "What is Canberra?"
+        },
+        {
+          "value": 500,
+          "question": "This city is the capital of Canada.",
+          "answer": "What is Ottawa?"
+        }
+      ]
+    },
+    {
+      "name": "Science",
+      "questions": [
+        {
+          "value": 100,
+          "question": "This is the chemical symbol for water.",
+          "answer": "What is H₂O?"
+        },
+        {
+          "value": 200,
+          "question": "This planet is known as the Red Planet.",
+          "answer": "What is Mars?"
+        },
+        {
+          "value": 300,
+          "question": "This force keeps us grounded on Earth.",
+          "answer": "What is gravity?"
+        },
+        {
+          "value": 400,
+          "question": "This organ pumps blood through the body.",
+          "answer": "What is the heart?"
+        },
+        {
+          "value": 500,
+          "question": "This particle carries a positive charge in the nucleus.",
+          "answer": "What is a proton?"
+        }
+      ]
+    },
+    {
+      "name": "Pop Culture",
+      "questions": [
+        {
+          "value": 100,
+          "question": "This streaming service created Stranger Things.",
+          "answer": "What is Netflix?"
+        },
+        {
+          "value": 200,
+          "question": "This superhero is known as the Dark Knight.",
+          "answer": "Who is Batman?"
+        },
+        {
+          "value": 300,
+          "question": "This 2020 game became a social phenomenon about impostors.",
+          "answer": "What is Among Us?"
+        },
+        {
+          "value": 400,
+          "question": "This artist released the album '1989 (Taylor's Version)'.",
+          "answer": "Who is Taylor Swift?"
+        },
+        {
+          "value": 500,
+          "question": "This film won Best Picture at the 2020 Oscars.",
+          "answer": "What is Parasite?"
+        }
+      ]
+    },
+    {
+      "name": "History",
+      "questions": [
+        {
+          "value": 100,
+          "question": "This ship sank on its maiden voyage in 1912.",
+          "answer": "What is the Titanic?"
+        },
+        {
+          "value": 200,
+          "question": "This wall divided Berlin from 1961 to 1989.",
+          "answer": "What is the Berlin Wall?"
+        },
+        {
+          "value": 300,
+          "question": "This ancient wonder was located in Alexandria.",
+          "answer": "What is the Lighthouse of Alexandria?"
+        },
+        {
+          "value": 400,
+          "question": "This 1776 document declared American independence.",
+          "answer": "What is the Declaration of Independence?"
+        },
+        {
+          "value": 500,
+          "question": "This empire was ruled by Julius Caesar.",
+          "answer": "What is the Roman Empire?"
+        }
+      ]
+    },
+    {
+      "name": "Sports",
+      "questions": [
+        {
+          "value": 100,
+          "question": "This sport uses a hoop and a ball.",
+          "answer": "What is basketball?"
+        },
+        {
+          "value": 200,
+          "question": "This event is held every four years and features the Olympic rings.",
+          "answer": "What are the Olympics?"
+        },
+        {
+          "value": 300,
+          "question": "This tennis tournament is played on grass in London.",
+          "answer": "What is Wimbledon?"
+        },
+        {
+          "value": 400,
+          "question": "This country has won the most FIFA World Cups.",
+          "answer": "What is Brazil?"
+        },
+        {
+          "value": 500,
+          "question": "This boxer proclaimed he was 'The Greatest'.",
+          "answer": "Who is Muhammad Ali?"
+        }
+      ]
+    },
+    {
+      "name": "Technology",
+      "questions": [
+        {
+          "value": 100,
+          "question": "This company created the iPhone.",
+          "answer": "What is Apple?"
+        },
+        {
+          "value": 200,
+          "question": "This language is primarily used for web styling.",
+          "answer": "What is CSS?"
+        },
+        {
+          "value": 300,
+          "question": "This term describes AI that can generate human-like text.",
+          "answer": "What is a large language model?"
+        },
+        {
+          "value": 400,
+          "question": "This open-source operating system uses a penguin mascot.",
+          "answer": "What is Linux?"
+        },
+        {
+          "value": 500,
+          "question": "This 1969 event was called 'one giant leap for mankind'.",
+          "answer": "What is the Apollo 11 moon landing?"
+        }
+      ]
+    }
+  ]
+}

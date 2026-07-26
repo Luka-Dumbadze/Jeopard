@@ -4,19 +4,24 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import confetti from "canvas-confetti";
 import { AnimatePresence, motion } from "framer-motion";
+import { useRoomId } from "@/components/room/RoomProvider";
 import { playVictoryFanfare } from "@/lib/audio";
 import { getWinningTeams } from "@/lib/board";
-import { useGameStore } from "@/store/gameStore";
+import { useTournamentStore } from "@/store/tournamentStore";
+import { getRoomTeams } from "@/types/tournament";
 
 export default function WinnerModal() {
   const router = useRouter();
-  const isOpen = useGameStore((state) => state.isWinnerModalOpen);
-  const teams = useGameStore((state) => state.teams);
-  const closeWinnerModal = useGameStore((state) => state.closeWinnerModal);
-  const resetGame = useGameStore((state) => state.resetGame);
+  const roomId = useRoomId();
+  const room = useTournamentStore((state) => state.rooms[roomId]);
+  const teams = useTournamentStore((state) => state.teams);
+  const closeWinnerModal = useTournamentStore((state) => state.closeWinnerModal);
+  const resetRoomBoard = useTournamentStore((state) => state.resetRoomBoard);
   const hasCelebrated = useRef(false);
 
-  const winners = getWinningTeams(teams);
+  const isOpen = room.isWinnerModalOpen;
+  const roomTeams = getRoomTeams(room, teams);
+  const winners = getWinningTeams(roomTeams);
   const isTie = winners.length > 1;
 
   useEffect(() => {
@@ -57,10 +62,13 @@ export default function WinnerModal() {
     return () => window.clearTimeout(burst);
   }, [isOpen]);
 
-  const handleNewGame = () => {
-    closeWinnerModal();
-    resetGame();
+  const handleDashboard = () => {
+    closeWinnerModal(roomId);
     router.push("/");
+  };
+
+  const handleReplayRoom = () => {
+    resetRoomBoard(roomId);
   };
 
   return (
@@ -83,7 +91,12 @@ export default function WinnerModal() {
             <motion.div
               initial={{ rotate: -20, scale: 0 }}
               animate={{ rotate: 0, scale: 1 }}
-              transition={{ type: "spring", stiffness: 260, damping: 14, delay: 0.1 }}
+              transition={{
+                type: "spring",
+                stiffness: 260,
+                damping: 14,
+                delay: 0.1,
+              }}
               className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-jeopardy-gold/15"
               aria-hidden
             >
@@ -101,7 +114,7 @@ export default function WinnerModal() {
             </motion.div>
 
             <p className="text-sm font-bold uppercase tracking-[0.3em] text-jeopardy-gold/80">
-              Board Complete
+              {room.labelKa} · Board Complete
             </p>
 
             <h2 className="mt-3 text-3xl font-bold text-jeopardy-gold md:text-4xl">
@@ -115,6 +128,9 @@ export default function WinnerModal() {
                   className="rounded-2xl bg-black/30 px-6 py-5 ring-1 ring-jeopardy-gold/30"
                 >
                   <p className="text-2xl font-bold text-white md:text-3xl">
+                    {"colorEmoji" in team && team.colorEmoji
+                      ? `${team.colorEmoji} `
+                      : ""}
                     {team.name}
                   </p>
                   <p className="mt-2 text-4xl font-bold tabular-nums text-jeopardy-gold md:text-5xl">
@@ -124,23 +140,22 @@ export default function WinnerModal() {
               ))}
             </div>
 
-            {!isTie && winners[0] && (
-              <p className="mt-6 text-white/70">
-                Congratulations to{" "}
-                <span className="font-bold text-jeopardy-gold">
-                  {winners[0].name}
-                </span>
-                !
-              </p>
-            )}
-
-            <button
-              type="button"
-              onClick={handleNewGame}
-              className="mt-10 rounded-xl bg-jeopardy-gold px-10 py-4 text-lg font-bold text-jeopardy-blue-dark transition hover:bg-yellow-300 active:scale-95"
-            >
-              Start New Game
-            </button>
+            <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                onClick={handleReplayRoom}
+                className="rounded-xl border border-jeopardy-gold/40 px-8 py-3 text-base font-bold text-jeopardy-gold transition hover:bg-jeopardy-gold/10"
+              >
+                Replay Room
+              </button>
+              <button
+                type="button"
+                onClick={handleDashboard}
+                className="rounded-xl bg-jeopardy-gold px-8 py-3 text-base font-bold text-jeopardy-blue-dark transition hover:bg-yellow-300 active:scale-95"
+              >
+                Master Dashboard
+              </button>
+            </div>
           </motion.div>
         </motion.div>
       )}

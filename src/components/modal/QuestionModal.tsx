@@ -3,21 +3,24 @@
 import { useEffect, useMemo, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useHostBuzzer } from "@/components/buzzer/HostBuzzerProvider";
-import {
-  playRevealSound,
-  playScoreAwardSound,
-} from "@/lib/audio";
-import { useGameStore } from "@/store/gameStore";
+import { useRoomId } from "@/components/room/RoomProvider";
+import { playRevealSound, playScoreAwardSound } from "@/lib/audio";
+import { useTournamentStore } from "@/store/tournamentStore";
+import { getRoomTeams } from "@/types/tournament";
 
 export default function QuestionModal() {
-  const activeQuestion = useGameStore((state) => state.activeQuestion);
-  const isAnswerRevealed = useGameStore((state) => state.isAnswerRevealed);
-  const teams = useGameStore((state) => state.teams);
-  const gameData = useGameStore((state) => state.gameData);
-  const revealAnswer = useGameStore((state) => state.revealAnswer);
-  const closeQuestion = useGameStore((state) => state.closeQuestion);
-  const awardTileValue = useGameStore((state) => state.awardTileValue);
-  const deductTileValue = useGameStore((state) => state.deductTileValue);
+  const roomId = useRoomId();
+  const room = useTournamentStore((state) => state.rooms[roomId]);
+  const gameData = useTournamentStore((state) => state.gameData);
+  const allTeams = useTournamentStore((state) => state.teams);
+  const revealAnswer = useTournamentStore((state) => state.revealAnswer);
+  const closeQuestion = useTournamentStore((state) => state.closeQuestion);
+  const awardTileValue = useTournamentStore((state) => state.awardTileValue);
+  const deductTileValue = useTournamentStore((state) => state.deductTileValue);
+
+  const activeQuestion = room.activeQuestion;
+  const isAnswerRevealed = room.isAnswerRevealed;
+  const teams = getRoomTeams(room, allTeams);
 
   const {
     buzzedPlayer,
@@ -35,7 +38,6 @@ export default function QuestionModal() {
 
   const lastBroadcastKeyRef = useRef<string | null>(null);
 
-  // Broadcast question open + unlock buzzers whenever a tile opens
   useEffect(() => {
     if (!activeQuestion) {
       lastBroadcastKeyRef.current = null;
@@ -75,7 +77,7 @@ export default function QuestionModal() {
 
       if (event.key === "Escape") {
         event.preventDefault();
-        closeQuestion();
+        closeQuestion(roomId);
         return;
       }
 
@@ -83,18 +85,16 @@ export default function QuestionModal() {
         if (!isAnswerRevealed) {
           event.preventDefault();
           playRevealSound();
-          revealAnswer();
+          revealAnswer(roomId);
         }
         return;
       }
 
-      if (/^[1-9]$/.test(event.key)) {
-        const teamIndex = Number(event.key) - 1;
-        const team = teams[teamIndex];
+      if (event.key === "1" || event.key === "2") {
+        const team = teams[Number(event.key) - 1];
         if (!team) return;
-
         event.preventDefault();
-        awardTileValue(team.id);
+        awardTileValue(roomId, team.id);
         playScoreAwardSound();
       }
     };
@@ -105,6 +105,7 @@ export default function QuestionModal() {
     activeQuestion,
     isAnswerRevealed,
     teams,
+    roomId,
     revealAnswer,
     closeQuestion,
     awardTileValue,
@@ -113,21 +114,12 @@ export default function QuestionModal() {
   const handleReveal = () => {
     if (isAnswerRevealed) return;
     playRevealSound();
-    revealAnswer();
-  };
-
-  const handleAward = (teamId: string) => {
-    awardTileValue(teamId);
-    playScoreAwardSound();
-  };
-
-  const handleDeduct = (teamId: string) => {
-    deductTileValue(teamId);
+    revealAnswer(roomId);
   };
 
   const handleClose = () => {
     lockBuzzers();
-    closeQuestion();
+    closeQuestion(roomId);
   };
 
   return (
@@ -229,7 +221,7 @@ export default function QuestionModal() {
               </div>
 
               <p className="mb-3 text-center text-xs font-bold uppercase tracking-widest text-jeopardy-gold/70">
-                Award Score · Keys 1–{Math.min(teams.length, 9)}
+                Award Score · Keys 1–2
               </p>
               <div className="mx-auto flex max-w-4xl flex-wrap items-stretch justify-center gap-3">
                 {teams.map((team, index) => (
@@ -240,15 +232,14 @@ export default function QuestionModal() {
                         ? "ring-jeopardy-gold shadow-[0_0_20px_rgba(255,215,0,0.35)]"
                         : "ring-jeopardy-gold/20"
                     }`}
+                    style={{ boxShadow: `inset 4px 0 0 ${team.color}` }}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate text-sm font-bold text-white">
-                        {index < 9 && (
-                          <span className="mr-1.5 text-jeopardy-gold/50">
-                            {index + 1}.
-                          </span>
-                        )}
-                        {team.name}
+                        <span className="mr-1.5 text-jeopardy-gold/50">
+                          {index + 1}.
+                        </span>
+                        {team.colorEmoji} {team.name}
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-jeopardy-gold/80">
                         ${team.score.toLocaleString()}
@@ -257,14 +248,17 @@ export default function QuestionModal() {
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => handleAward(team.id)}
+                        onClick={() => {
+                          awardTileValue(roomId, team.id);
+                          playScoreAwardSound();
+                        }}
                         className="flex-1 rounded-lg bg-green-900/70 px-2 py-2 text-xs font-bold text-green-100 transition hover:bg-green-800 active:scale-95 sm:text-sm"
                       >
                         + ${activeQuestion.question.value.toLocaleString()}
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDeduct(team.id)}
+                        onClick={() => deductTileValue(roomId, team.id)}
                         className="flex-1 rounded-lg bg-red-900/70 px-2 py-2 text-xs font-bold text-red-100 transition hover:bg-red-800 active:scale-95 sm:text-sm"
                       >
                         − ${activeQuestion.question.value.toLocaleString()}

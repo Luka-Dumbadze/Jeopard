@@ -5,21 +5,28 @@ import {
   useJeopardyBuzzer,
   type UseJeopardyBuzzerResult,
 } from "@/hooks/useJeopardyBuzzer";
-import { useGameStore } from "@/store/gameStore";
+import { useRoomId } from "@/components/room/RoomProvider";
+import { useTournamentStore } from "@/store/tournamentStore";
+import { getRoomTeamsOrEmpty } from "@/types/tournament";
 
 const HostBuzzerContext = createContext<UseJeopardyBuzzerResult | null>(null);
 
 export function HostBuzzerProvider({ children }: { children: ReactNode }) {
-  const roomCode = useGameStore((state) => state.roomCode);
-  const teams = useGameStore((state) => state.teams);
-  const gameTitle = useGameStore((state) => state.gameData?.title ?? null);
+  const roomId = useRoomId();
+  const room = useTournamentStore((state) => state.rooms[roomId]);
+  const teams = useTournamentStore((state) => state.teams);
+  const gameTitle = useTournamentStore(
+    (state) => state.gameData?.title ?? null
+  );
+
+  const roomTeams = getRoomTeamsOrEmpty(room, teams);
 
   const buzzer = useJeopardyBuzzer({
     role: "host",
-    roomCode,
-    teams,
+    roomCode: roomId,
+    teams: roomTeams,
     gameTitle,
-    enabled: Boolean(roomCode),
+    enabled: Boolean(roomId),
   });
 
   return (

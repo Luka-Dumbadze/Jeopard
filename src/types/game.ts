@@ -18,6 +18,9 @@ export interface Team {
   id: string;
   name: string;
   score: number;
+  /** Optional accent for tournament UI / buzzers */
+  color?: string;
+  colorEmoji?: string;
 }
 
 export interface ActiveQuestion {

@@ -1,6 +1,7 @@
 import type { Team } from "@/types/game";
+import type { RoomId } from "@/types/tournament";
 
-/** Format: ROOM-4821 */
+/** Accepts tournament rooms ROOM-1..ROOM-4 and legacy ROOM-XXXX codes. */
 export function generateRoomCode(): string {
   const digits = Math.floor(1000 + Math.random() * 9000);
   return `ROOM-${digits}`;
@@ -8,6 +9,13 @@ export function generateRoomCode(): string {
 
 export function normalizeRoomCode(input: string): string {
   const cleaned = input.trim().toUpperCase().replace(/\s+/g, "");
+
+  if (/^ROOM-[1-4]$/.test(cleaned)) {
+    return cleaned;
+  }
+  if (/^[1-4]$/.test(cleaned)) {
+    return `ROOM-${cleaned}`;
+  }
   if (/^\d{4}$/.test(cleaned)) {
     return `ROOM-${cleaned}`;
   }
@@ -15,6 +23,10 @@ export function normalizeRoomCode(input: string): string {
     return cleaned;
   }
   return cleaned;
+}
+
+export function isTournamentRoomCode(code: string): code is RoomId {
+  return /^ROOM-[1-4]$/.test(normalizeRoomCode(code));
 }
 
 export type BuzzerEventType =

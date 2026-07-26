@@ -2,9 +2,10 @@
 
 import { motion } from "framer-motion";
 import { playTileOpenSound } from "@/lib/audio";
+import { useRoomId } from "@/components/room/RoomProvider";
+import { useTournamentStore } from "@/store/tournamentStore";
 import type { Question } from "@/types/game";
 import { getTileKey } from "@/types/game";
-import { useGameStore } from "@/store/gameStore";
 
 interface GameTileProps {
   question: Question;
@@ -17,15 +18,18 @@ export default function GameTile({
   categoryIndex,
   questionIndex,
 }: GameTileProps) {
+  const roomId = useRoomId();
   const tileKey = getTileKey(categoryIndex, questionIndex);
-  const isUsed = useGameStore((state) => state.usedTiles.has(tileKey));
-  const openQuestion = useGameStore((state) => state.openQuestion);
+  const isUsed = useTournamentStore((state) =>
+    state.rooms[roomId].usedTiles.has(tileKey)
+  );
+  const openQuestion = useTournamentStore((state) => state.openQuestion);
 
   const handleClick = () => {
     if (isUsed) return;
 
     playTileOpenSound();
-    openQuestion({
+    openQuestion(roomId, {
       categoryIndex,
       questionIndex,
       question,

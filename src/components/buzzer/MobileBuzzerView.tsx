@@ -17,26 +17,10 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
 
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedTeamName, setSelectedTeamName] = useState<string | null>(null);
-  const [customName, setCustomName] = useState("");
-  const [useCustom, setUseCustom] = useState(false);
   const [joined, setJoined] = useState(false);
 
-  const customTeamId = useMemo(() => {
-    if (!useCustom || !customName.trim()) return null;
-    return `custom-${customName.trim().toLowerCase().replace(/\s+/g, "-")}`;
-  }, [useCustom, customName]);
-
-  const playerTeamId = joined
-    ? useCustom
-      ? customTeamId
-      : selectedTeamId
-    : null;
-
-  const playerTeamName = joined
-    ? useCustom
-      ? customName.trim() || null
-      : selectedTeamName
-    : null;
+  const playerTeamId = joined ? selectedTeamId : null;
+  const playerTeamName = joined ? selectedTeamName : null;
 
   const {
     isConfigured,
@@ -55,10 +39,7 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
   });
 
   const resolvedName = playerTeamName ?? "Player";
-
-  const canJoin =
-    roomCode.length > 0 &&
-    (useCustom ? customName.trim().length > 0 : Boolean(selectedTeamId));
+  const canJoin = roomCode.length > 0 && Boolean(selectedTeamId);
 
   const handleBuzz = () => {
     if (playerUiState !== "ready") return;
@@ -73,8 +54,8 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
       <main className="flex min-h-dvh flex-col items-center justify-center bg-jeopardy-blue-dark px-6 text-center">
         <h1 className="text-2xl font-bold text-jeopardy-gold">Join a Room</h1>
         <p className="mt-3 text-white/70">
-          Open this page from the host QR code, or add{" "}
-          <code className="text-jeopardy-gold">?room=ROOM-1234</code> to the URL.
+          Scan the room QR or open{" "}
+          <code className="text-jeopardy-gold">/buzz?room=ROOM-1</code>
         </p>
       </main>
     );
@@ -98,18 +79,18 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
           {roomCode}
         </p>
         <h1 className="mt-2 text-center text-3xl font-bold text-jeopardy-gold">
-          Pick Your Team
+          აირჩიე გუნდი
         </h1>
         <p className="mt-2 text-center text-sm text-white/60">
           {isConnected
-            ? "Connected to host room"
+            ? "Connected — only this room's 2 teams are listed"
             : "Connecting to realtime room…"}
         </p>
 
         <div className="mt-8 space-y-3">
           {sessionTeams.length === 0 ? (
             <p className="rounded-xl bg-black/30 px-4 py-6 text-center text-sm text-white/60">
-              Waiting for host to sync teams…
+              Waiting for host projector to sync teams…
             </p>
           ) : (
             sessionTeams.map((team) => (
@@ -117,42 +98,25 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
                 key={team.id}
                 type="button"
                 onClick={() => {
-                  setUseCustom(false);
                   setSelectedTeamId(team.id);
                   setSelectedTeamName(team.name);
                 }}
-                className={`w-full rounded-xl px-4 py-4 text-left text-lg font-bold transition ${
-                  !useCustom && selectedTeamId === team.id
+                className={`flex w-full items-center gap-3 rounded-xl px-4 py-4 text-left text-lg font-bold transition ${
+                  selectedTeamId === team.id
                     ? "bg-jeopardy-gold text-jeopardy-blue-dark ring-2 ring-white/40"
                     : "bg-jeopardy-blue text-white ring-1 ring-jeopardy-gold/30"
                 }`}
+                style={
+                  team.color
+                    ? { boxShadow: `inset 6px 0 0 ${team.color}` }
+                    : undefined
+                }
               >
-                {team.name}
+                <span aria-hidden>{team.colorEmoji ?? "•"}</span>
+                <span>{team.name}</span>
               </button>
             ))
           )}
-        </div>
-
-        <div className="mt-6">
-          <button
-            type="button"
-            onClick={() => setUseCustom(true)}
-            className={`mb-2 text-sm font-bold ${
-              useCustom ? "text-jeopardy-gold" : "text-white/50"
-            }`}
-          >
-            Or enter a player name
-          </button>
-          <input
-            type="text"
-            value={customName}
-            onChange={(event) => {
-              setUseCustom(true);
-              setCustomName(event.target.value);
-            }}
-            placeholder="Your name"
-            className="w-full rounded-xl bg-black/40 px-4 py-3 text-white outline-none ring-1 ring-jeopardy-gold/30 focus:ring-jeopardy-gold"
-          />
         </div>
 
         <button

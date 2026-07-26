@@ -1,5 +1,5 @@
-import UploadScreen from "@/components/upload/UploadScreen";
+import TournamentSetup from "@/components/tournament/TournamentSetup";
 
 export default function HomePage() {
-  return <UploadScreen />;
+  return <TournamentSetup />;
 }

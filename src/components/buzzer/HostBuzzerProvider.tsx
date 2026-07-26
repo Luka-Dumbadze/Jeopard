@@ -13,6 +13,7 @@ import {
   type HostRoomSnapshot,
   type UseJeopardyBuzzerResult,
 } from "@/hooks/useJeopardyBuzzer";
+import { useRoomBuzzerDb } from "@/hooks/useRoomBuzzerDb";
 import { useRoomId } from "@/components/room/RoomProvider";
 import { useTournamentStore } from "@/store/tournamentStore";
 import { isTournamentId } from "@/types/cloudTournament";
@@ -45,10 +46,14 @@ export function HostBuzzerProvider({ children }: { children: ReactNode }) {
     return storeTournamentId;
   }, [storeTournamentId, tournamentParam]);
 
-  // Stable across devices: prefer cloud tournament id for player cache sync
   const buzzerSessionId = tournamentId ?? localSessionId;
-
   const roomTeams = getRoomTeamsOrEmpty(room, teams);
+
+  const { state: dbBuzzer } = useRoomBuzzerDb({
+    tournamentId,
+    roomId,
+    enabled: Boolean(tournamentId) && Boolean(gameData),
+  });
 
   const getHostSnapshot = useCallback((): HostRoomSnapshot => {
     const latest = useTournamentStore.getState();
@@ -97,8 +102,25 @@ export function HostBuzzerProvider({ children }: { children: ReactNode }) {
     getHostSnapshot,
   });
 
+  const merged = useMemo((): UseJeopardyBuzzerResult => {
+    const dbBuzzed =
+      dbBuzzer?.buzzedTeamId && dbBuzzer.buzzedTeamName
+        ? {
+            teamId: dbBuzzer.buzzedTeamId,
+            teamName: dbBuzzer.buzzedTeamName,
+            timestamp: Date.now(),
+          }
+        : null;
+
+    return {
+      ...buzzer,
+      buzzedPlayer: buzzer.buzzedPlayer ?? dbBuzzed,
+      buzzersOpen: buzzer.buzzersOpen || Boolean(dbBuzzer?.buzzersOpen),
+    };
+  }, [buzzer, dbBuzzer]);
+
   return (
-    <HostBuzzerContext.Provider value={buzzer}>
+    <HostBuzzerContext.Provider value={merged}>
       {children}
     </HostBuzzerContext.Provider>
   );

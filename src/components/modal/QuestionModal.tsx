@@ -7,6 +7,11 @@ import { useHostBuzzer } from "@/components/buzzer/HostBuzzerProvider";
 import { useRoomId } from "@/components/room/RoomProvider";
 import { useActionLock } from "@/hooks/useActionLock";
 import { playRevealSound, playScoreAwardSound } from "@/lib/audio";
+import {
+  closeRoomBuzzers,
+  openRoomBuzzers,
+  resetRoomBuzzers,
+} from "@/lib/supabase/tournaments";
 import { useTournamentStore } from "@/store/tournamentStore";
 import { isTournamentId } from "@/types/cloudTournament";
 import { getRoomTeams } from "@/types/tournament";
@@ -54,16 +59,23 @@ export default function QuestionModal() {
   }, [activeQuestion, gameData]);
 
   const lastBroadcastKeyRef = useRef<string | null>(null);
+  const hadQuestionRef = useRef(false);
 
-  // Broadcast QUESTION_OPENED + BUZZERS_UNLOCKED whenever a tile opens.
+  // Broadcast + DB unlock whenever a tile opens.
   // Re-fire when the realtime channel becomes SUBSCRIBED so early clicks are not lost.
   useEffect(() => {
     if (!activeQuestion) {
       lastBroadcastKeyRef.current = null;
+      if (hadQuestionRef.current && tournamentId) {
+        void closeRoomBuzzers(tournamentId, roomId);
+      }
+      hadQuestionRef.current = false;
       lockBuzzers();
       unlockScore();
       return;
     }
+
+    hadQuestionRef.current = true;
 
     const key = `${activeQuestion.categoryIndex}-${activeQuestion.questionIndex}`;
     const broadcastKey = `${key}|connected:${isConnected ? "1" : "0"}`;
@@ -77,7 +89,7 @@ export default function QuestionModal() {
 
     lastBroadcastKeyRef.current = broadcastKey;
 
-    broadcastQuestionOpened({
+    const payload = {
       categoryIndex: activeQuestion.categoryIndex,
       questionIndex: activeQuestion.questionIndex,
       categoryName,
@@ -86,7 +98,20 @@ export default function QuestionModal() {
       roomId,
       tournamentId,
       isBuzzerLocked: false,
-    });
+    };
+
+    // Durable unlock for mobile polling / Postgres Changes
+    if (tournamentId) {
+      void openRoomBuzzers(tournamentId, roomId, {
+        categoryIndex: payload.categoryIndex,
+        questionIndex: payload.questionIndex,
+        categoryName: payload.categoryName,
+        value: payload.value,
+        question: payload.question,
+      });
+    }
+
+    broadcastQuestionOpened(payload);
   }, [
     activeQuestion,
     categoryName,
@@ -157,8 +182,18 @@ export default function QuestionModal() {
   };
 
   const handleClose = () => {
+    if (tournamentId) {
+      void closeRoomBuzzers(tournamentId, roomId);
+    }
     lockBuzzers();
     closeQuestion(roomId);
+  };
+
+  const handleResetBuzzers = () => {
+    resetBuzzers();
+    if (tournamentId) {
+      void resetRoomBuzzers(tournamentId, roomId);
+    }
   };
 
   return (
@@ -259,7 +294,7 @@ export default function QuestionModal() {
               <div className="mb-4 flex flex-wrap items-center justify-center gap-3">
                 <button
                   type="button"
-                  onClick={resetBuzzers}
+                  onClick={handleResetBuzzers}
                   className="rounded-lg border border-green-400/50 bg-green-900/50 px-4 py-2 text-sm font-bold text-green-100 transition hover:bg-green-800/70 active:scale-95"
                 >
                   {"\u{1F513}"} Unlock / Reset Buzzers

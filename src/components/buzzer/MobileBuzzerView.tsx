@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useJeopardyBuzzer } from "@/hooks/useJeopardyBuzzer";
+import { useRoomBuzzerDb, type DbSyncMode } from "@/hooks/useRoomBuzzerDb";
 import { installAudioUnlockListener } from "@/lib/audio";
 import {
   resolvePlayerBuzzerState,
   savePlayerBuzzerState,
 } from "@/lib/playerLocalState";
 import {
+  claimRoomBuzz,
   fetchLatestTournamentSession,
   fetchTournamentSession,
   getAssignedRoomTeams,
@@ -20,6 +22,45 @@ import type { Team } from "@/types/game";
 interface MobileBuzzerViewProps {
   initialRoom: string;
   tournamentId?: string | null;
+}
+
+function SyncBadge({
+  roomCode,
+  tournamentId,
+  syncMode,
+  isConnected,
+}: {
+  roomCode: string;
+  tournamentId: string | null;
+  syncMode: DbSyncMode;
+  isConnected: boolean;
+}) {
+  const label =
+    syncMode === "realtime"
+      ? "DB Live Sync"
+      : syncMode === "polling"
+        ? "DB Polling 1s"
+        : syncMode === "offline"
+          ? "DB Offline"
+          : "DB Idle";
+  const icon =
+    syncMode === "realtime"
+      ? "🟢"
+      : syncMode === "polling"
+        ? "🟡"
+        : syncMode === "offline"
+          ? "🔴"
+          : "⚪";
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-3 z-50 flex justify-center px-3">
+      <p className="max-w-full truncate rounded-full bg-black/55 px-3 py-1.5 text-center font-mono text-[10px] leading-tight text-white/75 ring-1 ring-white/10 backdrop-blur-sm">
+        {icon} {label} · {roomCode}
+        {tournamentId ? ` · ${tournamentId}` : ""}
+        {isConnected ? " · RT" : " · RT…"}
+      </p>
+    </div>
+  );
 }
 
 export default function MobileBuzzerView({
@@ -36,6 +77,7 @@ export default function MobileBuzzerView({
   const [joined, setJoined] = useState(false);
   const [isBuzzing, setIsBuzzing] = useState(false);
   const [sessionMismatchNotice, setSessionMismatchNotice] = useState(false);
+  const [localWonBuzz, setLocalWonBuzz] = useState(false);
 
   const [dbTeams, setDbTeams] = useState<Team[]>([]);
   const [resolvedTournamentId, setResolvedTournamentId] = useState<string | null>(
@@ -107,10 +149,10 @@ export default function MobileBuzzerView({
     isConnected,
     sessionId,
     sessionTeams,
-    playerUiState,
-    buzzersOpen,
-    buzzedPlayer,
-    activeQuestion,
+    playerUiState: realtimeUiState,
+    buzzersOpen: realtimeBuzzersOpen,
+    buzzedPlayer: realtimeBuzzed,
+    activeQuestion: realtimeQuestion,
     sendBuzz,
   } = useJeopardyBuzzer({
     role: "player",
@@ -121,11 +163,54 @@ export default function MobileBuzzerView({
     playerTeamName,
   });
 
+  const {
+    state: dbBuzzer,
+    syncMode,
+  } = useRoomBuzzerDb({
+    tournamentId: resolvedTournamentId,
+    roomId: roomCode,
+    enabled: Boolean(resolvedTournamentId) && Boolean(roomCode),
+    pollIntervalMs: 1000,
+  });
+
   // Prefer live host sync; fall back to DB-hydrated room teams
   const displayTeams = sessionTeams.length > 0 ? sessionTeams : dbTeams;
-
-  // Prefer host sessionId; fall back to tournament id so join works before sync
   const effectiveSessionId = sessionId ?? resolvedTournamentId;
+
+  // DB is source of truth for unlock; realtime is a bonus
+  const dbReady =
+    Boolean(dbBuzzer?.buzzersOpen) && dbBuzzer?.buzzedTeamId == null;
+  const dbYouBuzzed =
+    Boolean(joined) &&
+    Boolean(selectedTeamId) &&
+    dbBuzzer?.buzzedTeamId === selectedTeamId;
+  const dbLockedOut =
+    Boolean(joined) &&
+    Boolean(dbBuzzer?.buzzedTeamId) &&
+    dbBuzzer?.buzzedTeamId !== selectedTeamId;
+
+  const effectiveBuzzersOpen = dbReady || realtimeBuzzersOpen;
+  const effectiveActiveQuestion =
+    dbBuzzer?.activeQuestion ?? realtimeQuestion ?? null;
+
+  let playerUiState: "waiting" | "ready" | "you_buzzed" | "locked_out" =
+    "waiting";
+  if (localWonBuzz || dbYouBuzzed) {
+    playerUiState = "you_buzzed";
+  } else if (dbLockedOut) {
+    playerUiState = "locked_out";
+  } else if (joined && dbReady) {
+    playerUiState = "ready";
+  } else if (realtimeUiState === "you_buzzed" || realtimeUiState === "locked_out") {
+    playerUiState = realtimeUiState;
+  } else if (joined && effectiveBuzzersOpen) {
+    playerUiState = "ready";
+  } else {
+    playerUiState = "waiting";
+  }
+
+  const lockedTeamName =
+    dbBuzzer?.buzzedTeamName ?? realtimeBuzzed?.teamName ?? "Another team";
 
   // Stale localStorage invalidation when tournament session changes
   useEffect(() => {
@@ -141,6 +226,7 @@ export default function MobileBuzzerView({
       setSelectedTeamName(null);
       setJoined(false);
       setSessionMismatchNotice(true);
+      setLocalWonBuzz(false);
       return;
     }
 
@@ -156,8 +242,11 @@ export default function MobileBuzzerView({
   useEffect(() => {
     if (playerUiState === "ready" || playerUiState === "waiting") {
       setIsBuzzing(false);
+      if (playerUiState === "waiting" || dbReady) {
+        setLocalWonBuzz(false);
+      }
     }
-  }, [playerUiState, activeQuestion]);
+  }, [playerUiState, dbReady, effectiveActiveQuestion]);
 
   const resolvedName = playerTeamName ?? "Player";
   const canJoin = roomCode.length > 0 && Boolean(selectedTeamId);
@@ -178,19 +267,51 @@ export default function MobileBuzzerView({
 
   const handleBuzz = () => {
     if (playerUiState !== "ready" || isBuzzing) return;
+    if (!selectedTeamId || !selectedTeamName) return;
 
-    // Instant client-side debounce / spam prevention
     setIsBuzzing(true);
 
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       navigator.vibrate([150]);
     }
 
-    const sent = sendBuzz();
-    if (!sent) {
-      setIsBuzzing(false);
+    // Keep broadcast for host sound / legacy listeners
+    sendBuzz();
+
+    if (!resolvedTournamentId) {
+      return;
     }
+
+    void (async () => {
+      const result = await claimRoomBuzz(
+        resolvedTournamentId,
+        roomCode,
+        selectedTeamId,
+        selectedTeamName
+      );
+
+      if (!result.ok) {
+        setIsBuzzing(false);
+        return;
+      }
+
+      if (result.won) {
+        setLocalWonBuzz(true);
+      } else {
+        setLocalWonBuzz(false);
+        setIsBuzzing(false);
+      }
+    })();
   };
+
+  const badge = (
+    <SyncBadge
+      roomCode={roomCode || "—"}
+      tournamentId={resolvedTournamentId}
+      syncMode={syncMode}
+      isConnected={isConnected}
+    />
+  );
 
   if (!roomCode) {
     return (
@@ -202,6 +323,7 @@ export default function MobileBuzzerView({
             /buzz?room=ROOM-1&amp;t=TOURNAMENT-…
           </code>
         </p>
+        {badge}
       </main>
     );
   }
@@ -213,6 +335,7 @@ export default function MobileBuzzerView({
         <p className="mt-3 text-sm text-white/70">
           Supabase env vars are not configured on this deployment.
         </p>
+        {badge}
       </main>
     );
   }
@@ -295,6 +418,7 @@ export default function MobileBuzzerView({
         >
           Join Buzzer
         </button>
+        {badge}
       </main>
     );
   }
@@ -306,9 +430,9 @@ export default function MobileBuzzerView({
       playerUiState === "you_buzzed" ||
       playerUiState === "locked_out" ||
       isBuzzing ||
-      buzzersOpen);
+      effectiveBuzzersOpen);
 
-  if (showFullScreenBuzz && (playerUiState === "ready" || isBuzzing)) {
+  if (showFullScreenBuzz && (playerUiState === "ready" || isBuzzing) && playerUiState !== "you_buzzed" && playerUiState !== "locked_out") {
     return (
       <main className="relative flex min-h-dvh w-full flex-col items-center justify-center overflow-hidden px-4 py-6">
         <motion.div
@@ -387,11 +511,13 @@ export default function MobileBuzzerView({
           </span>
         </motion.button>
 
-        {activeQuestion && (
+        {effectiveActiveQuestion && (
           <p className="relative z-10 mt-5 max-w-sm text-center text-xs text-white/70">
-            {activeQuestion.categoryName} · ${activeQuestion.value}
+            {effectiveActiveQuestion.categoryName} · $
+            {effectiveActiveQuestion.value}
           </p>
         )}
+        {badge}
       </main>
     );
   }
@@ -412,6 +538,7 @@ export default function MobileBuzzerView({
           </span>
         </motion.div>
         <p className="mt-6 text-lg font-bold text-white">{resolvedName}</p>
+        {badge}
       </main>
     );
   }
@@ -425,9 +552,10 @@ export default function MobileBuzzerView({
             LOCKED
           </span>
           <span className="mt-3 text-base font-bold text-red-200/90">
-            {buzzedPlayer?.teamName ?? "Another team"} buzzed first
+            {lockedTeamName} buzzed first
           </span>
         </div>
+        {badge}
       </main>
     );
   }
@@ -459,6 +587,7 @@ export default function MobileBuzzerView({
           next question…
         </button>
       </div>
+      {badge}
     </main>
   );
 }

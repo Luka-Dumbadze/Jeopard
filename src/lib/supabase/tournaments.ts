@@ -229,57 +229,95 @@ export async function fetchRoomBuzzerState(
   return mapRoomBuzzerRow(data as TournamentRoomBuzzerRow);
 }
 
-/** Host: open tile → unlock buzzers in DB. */
+export interface RoomBuzzerUpsertMeta {
+  roomNumber?: number;
+  labelKa?: string;
+  teamIds?: string[];
+}
+
+function resolveRoomMeta(roomId: string, meta?: RoomBuzzerUpsertMeta) {
+  const parsed = /^ROOM-([1-4])$/i.exec(roomId.trim());
+  const roomNumber = meta?.roomNumber ?? (parsed ? Number(parsed[1]) : 1);
+  return {
+    room_number: roomNumber,
+    label_ka: meta?.labelKa ?? `ოთახი ${roomNumber}`,
+    team_ids: meta?.teamIds ?? [],
+  };
+}
+
+/**
+ * Host: open tile / force unlock → UPSERT tournament_rooms so the row
+ * always exists with buzzers_open=true (unique on tournament_id,room_id).
+ * Note: DB column is tournament_id (session/tournament id), not session_id.
+ */
 export async function openRoomBuzzers(
   tournamentId: string,
   roomId: string,
-  activeQuestion: RoomActiveQuestionPayload
+  activeQuestion: RoomActiveQuestionPayload,
+  meta?: RoomBuzzerUpsertMeta
 ): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
   const supabase = getSupabaseClient();
   if (!supabase) return false;
 
-  const { error } = await supabase
-    .from("tournament_rooms")
-    .update({
+  const roomMeta = resolveRoomMeta(roomId, meta);
+  const { error } = await supabase.from("tournament_rooms").upsert(
+    {
+      tournament_id: tournamentId,
+      room_id: roomId,
+      room_number: roomMeta.room_number,
+      label_ka: roomMeta.label_ka,
+      team_ids: roomMeta.team_ids,
       buzzers_open: true,
       active_question: activeQuestion,
       buzzed_team_id: null,
       buzzed_team_name: null,
       updated_at: new Date().toISOString(),
-    })
-    .eq("tournament_id", tournamentId)
-    .eq("room_id", roomId);
+    },
+    { onConflict: "tournament_id,room_id" }
+  );
 
   if (error) {
-    console.error("[room-buzzer] open failed:", error.message);
+    console.error("[room-buzzer] upsert open failed:", error.message);
     return false;
   }
   return true;
 }
 
-/** Host: unlock / reset buzzers for the current question. */
+/** Host: unlock / reset buzzers for the current question (UPSERT). */
 export async function resetRoomBuzzers(
   tournamentId: string,
-  roomId: string
+  roomId: string,
+  meta?: RoomBuzzerUpsertMeta & {
+    activeQuestion?: RoomActiveQuestionPayload | null;
+  }
 ): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
   const supabase = getSupabaseClient();
   if (!supabase) return false;
 
+  const roomMeta = resolveRoomMeta(roomId, meta);
+  const row: Record<string, unknown> = {
+    tournament_id: tournamentId,
+    room_id: roomId,
+    room_number: roomMeta.room_number,
+    label_ka: roomMeta.label_ka,
+    team_ids: roomMeta.team_ids,
+    buzzers_open: true,
+    buzzed_team_id: null,
+    buzzed_team_name: null,
+    updated_at: new Date().toISOString(),
+  };
+  if (meta?.activeQuestion !== undefined) {
+    row.active_question = meta.activeQuestion;
+  }
+
   const { error } = await supabase
     .from("tournament_rooms")
-    .update({
-      buzzers_open: true,
-      buzzed_team_id: null,
-      buzzed_team_name: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("tournament_id", tournamentId)
-    .eq("room_id", roomId);
+    .upsert(row, { onConflict: "tournament_id,room_id" });
 
   if (error) {
-    console.error("[room-buzzer] reset failed:", error.message);
+    console.error("[room-buzzer] upsert reset failed:", error.message);
     return false;
   }
   return true;

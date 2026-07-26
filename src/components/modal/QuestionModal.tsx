@@ -100,15 +100,25 @@ export default function QuestionModal() {
       isBuzzerLocked: false,
     };
 
-    // Durable unlock for mobile polling / Postgres Changes
+    // Durable UPSERT unlock for mobile polling / Postgres Changes
+    // (creates the tournament_rooms row if missing)
     if (tournamentId) {
-      void openRoomBuzzers(tournamentId, roomId, {
-        categoryIndex: payload.categoryIndex,
-        questionIndex: payload.questionIndex,
-        categoryName: payload.categoryName,
-        value: payload.value,
-        question: payload.question,
-      });
+      void openRoomBuzzers(
+        tournamentId,
+        roomId,
+        {
+          categoryIndex: payload.categoryIndex,
+          questionIndex: payload.questionIndex,
+          categoryName: payload.categoryName,
+          value: payload.value,
+          question: payload.question,
+        },
+        {
+          roomNumber: room.number,
+          labelKa: room.labelKa,
+          teamIds: [...room.teamIds],
+        }
+      );
     }
 
     broadcastQuestionOpened(payload);
@@ -116,6 +126,9 @@ export default function QuestionModal() {
     activeQuestion,
     categoryName,
     roomId,
+    room.number,
+    room.labelKa,
+    room.teamIds,
     tournamentId,
     isConnected,
     broadcastQuestionOpened,
@@ -189,11 +202,43 @@ export default function QuestionModal() {
     closeQuestion(roomId);
   };
 
+  const roomUpsertMeta = {
+    roomNumber: room.number,
+    labelKa: room.labelKa,
+    teamIds: [...room.teamIds],
+  };
+
   const handleResetBuzzers = () => {
     resetBuzzers();
-    if (tournamentId) {
-      void resetRoomBuzzers(tournamentId, roomId);
+    if (tournamentId && activeQuestion) {
+      void resetRoomBuzzers(tournamentId, roomId, {
+        ...roomUpsertMeta,
+        activeQuestion: {
+          categoryIndex: activeQuestion.categoryIndex,
+          questionIndex: activeQuestion.questionIndex,
+          categoryName,
+          value: activeQuestion.question.value,
+          question: activeQuestion.question.question,
+        },
+      });
     }
+  };
+
+  const handleForceUnlockBuzzers = () => {
+    if (!tournamentId || !activeQuestion) return;
+    resetBuzzers();
+    void openRoomBuzzers(
+      tournamentId,
+      roomId,
+      {
+        categoryIndex: activeQuestion.categoryIndex,
+        questionIndex: activeQuestion.questionIndex,
+        categoryName,
+        value: activeQuestion.question.value,
+        question: activeQuestion.question.question,
+      },
+      roomUpsertMeta
+    );
   };
 
   return (
@@ -292,6 +337,13 @@ export default function QuestionModal() {
 
             <div className="border-t border-jeopardy-gold/30 bg-jeopardy-blue-dark/90 px-4 py-4">
               <div className="mb-4 flex flex-wrap items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleForceUnlockBuzzers}
+                  className="rounded-xl border-2 border-jeopardy-gold bg-jeopardy-gold px-5 py-3 text-sm font-black uppercase tracking-wide text-jeopardy-blue-dark shadow-[0_0_24px_rgba(255,215,0,0.45)] transition hover:bg-yellow-300 active:scale-95"
+                >
+                  {"\u{1F514}"} Force Unlock Buzzers
+                </button>
                 <button
                   type="button"
                   onClick={handleResetBuzzers}

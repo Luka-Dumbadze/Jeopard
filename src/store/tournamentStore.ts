@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { isBoardComplete } from "@/lib/board";
 import { mergeTournamentPersistedState } from "@/lib/tournamentPersist";
 import type { ActiveQuestion, GameData, TileKey } from "@/types/game";
@@ -11,6 +11,30 @@ import {
   type RoomState,
   type TournamentTeam,
 } from "@/types/tournament";
+
+function createSessionId(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** SSR-safe storage: never touch localStorage during server render. */
+function createSafeStorage() {
+  return createJSONStorage(() => {
+    if (typeof window === "undefined") {
+      return {
+        getItem: () => null,
+        setItem: () => undefined,
+        removeItem: () => undefined,
+      };
+    }
+    return window.localStorage;
+  });
+}
 
 interface TournamentState {
   gameData: GameData | null;
@@ -79,7 +103,7 @@ function createInitialState(): Pick<
     teams,
     rooms: createEmptyRooms(teams),
     isTournamentActive: false,
-    sessionId: crypto.randomUUID(),
+    sessionId: createSessionId(),
   };
 }
 
@@ -118,7 +142,7 @@ export const useTournamentStore = create<TournamentState>()(
           teams: resetTeams,
           rooms: createEmptyRooms(resetTeams),
           isTournamentActive: true,
-          sessionId: crypto.randomUUID(),
+          sessionId: createSessionId(),
         });
       },
 
@@ -241,6 +265,7 @@ export const useTournamentStore = create<TournamentState>()(
     }),
     {
       name: "jeopardy-tournament-storage",
+      storage: createSafeStorage(),
       partialize: (state) => ({
         gameData: state.gameData,
         teams: state.teams,
@@ -262,20 +287,35 @@ export const useTournamentStore = create<TournamentState>()(
           })
         ),
       }),
-      merge: (persisted, current) =>
-        mergeTournamentPersistedState(persisted, {
+      merge: (persisted, current) => {
+        const data = mergeTournamentPersistedState(persisted, {
           gameData: current.gameData,
           teams: current.teams,
           rooms: current.rooms,
           isTournamentActive: current.isTournamentActive,
           sessionId: current.sessionId,
           hasHydrated: current.hasHydrated,
-        }) as typeof current,
+        });
+
+        // Preserve action methods from `current` — never replace the full store shape
+        return {
+          ...current,
+          gameData: data.gameData,
+          teams: data.teams,
+          rooms: data.rooms,
+          isTournamentActive: data.isTournamentActive,
+          sessionId: data.sessionId,
+          hasHydrated: data.hasHydrated,
+        };
+      },
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.error("Failed to rehydrate tournament store", error);
+          return;
         }
-        state?.setHasHydrated(true);
+        // Prefer store API in case partial state was passed
+        useTournamentStore.setState({ hasHydrated: true });
+        state?.setHasHydrated?.(true);
       },
     }
   )

@@ -50,9 +50,8 @@ export function installAudioUnlockListener(): void {
   window.addEventListener("click", unlock, { once: true });
 }
 
-if (typeof window !== "undefined") {
-  installAudioUnlockListener();
-}
+// NOTE: Do not auto-install at module load — call installAudioUnlockListener()
+// from a client useEffect / user-gesture path only (SSR-safe).
 
 function playTone(
   frequency: number,

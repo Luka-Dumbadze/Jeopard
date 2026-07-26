@@ -83,9 +83,19 @@ export const DEFAULT_TEAM_PRESETS: Array<
 ];
 
 export function createDefaultTeams(): TournamentTeam[] {
+  const makeId = () => {
+    if (
+      typeof crypto !== "undefined" &&
+      typeof crypto.randomUUID === "function"
+    ) {
+      return crypto.randomUUID();
+    }
+    return `team-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  };
+
   return DEFAULT_TEAM_PRESETS.map((preset) => ({
     ...preset,
-    id: crypto.randomUUID(),
+    id: makeId(),
     score: 0,
   }));
 }

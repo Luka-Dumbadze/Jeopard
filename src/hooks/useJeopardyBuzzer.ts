@@ -441,6 +441,30 @@ export function useJeopardyBuzzer(
     applyRoomState,
   ]);
 
+  // Host heartbeat: keep re-broadcasting unlock while a question is open
+  // so late / flaky mobile connections still flip to READY.
+  useEffect(() => {
+    if (role !== "host") return;
+    if (!activeQuestion || !buzzersOpen || buzzedPlayer) return;
+    if (!isConnected) return;
+
+    const tick = () => {
+      if (firstBuzzLockedRef.current) return;
+      sendBroadcast("BUZZERS_UNLOCKED", {});
+    };
+
+    tick();
+    const intervalId = window.setInterval(tick, 1500);
+    return () => window.clearInterval(intervalId);
+  }, [
+    role,
+    activeQuestion,
+    buzzersOpen,
+    buzzedPlayer,
+    isConnected,
+    sendBroadcast,
+  ]);
+
   let playerUiState: PlayerBuzzerUiState = "waiting";
   if (role === "player") {
     if (buzzedPlayer) {

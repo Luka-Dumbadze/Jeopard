@@ -108,6 +108,7 @@ export default function MobileBuzzerView({
     sessionId,
     sessionTeams,
     playerUiState,
+    buzzersOpen,
     buzzedPlayer,
     activeQuestion,
     sendBuzz,
@@ -299,6 +300,137 @@ export default function MobileBuzzerView({
   }
 
   const buzzDisabled = playerUiState !== "ready" || isBuzzing;
+  const showFullScreenBuzz =
+    joined &&
+    (playerUiState === "ready" ||
+      playerUiState === "you_buzzed" ||
+      playerUiState === "locked_out" ||
+      isBuzzing ||
+      buzzersOpen);
+
+  if (showFullScreenBuzz && (playerUiState === "ready" || isBuzzing)) {
+    return (
+      <main className="relative flex min-h-dvh w-full flex-col items-center justify-center overflow-hidden px-4 py-6">
+        <motion.div
+          aria-hidden
+          className="absolute inset-0"
+          animate={{
+            background: [
+              "radial-gradient(circle at 50% 45%, rgba(34,197,94,0.55) 0%, rgba(8,22,72,1) 70%)",
+              "radial-gradient(circle at 50% 45%, rgba(255,215,0,0.65) 0%, rgba(8,22,72,1) 72%)",
+              "radial-gradient(circle at 50% 45%, rgba(34,197,94,0.55) 0%, rgba(8,22,72,1) 70%)",
+            ],
+          }}
+          transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-40"
+          animate={{ opacity: [0.25, 0.55, 0.25] }}
+          transition={{ duration: 0.9, repeat: Infinity }}
+          style={{
+            background:
+              "radial-gradient(circle at center, rgba(255,215,0,0.45), transparent 60%)",
+          }}
+        />
+
+        <div className="relative z-10 mb-4 text-center">
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-jeopardy-gold/80">
+            {roomCode}
+          </p>
+          <p className="mt-1 text-base font-bold text-white drop-shadow">
+            {resolvedName}
+          </p>
+        </div>
+
+        <motion.button
+          type="button"
+          disabled={buzzDisabled}
+          onClick={handleBuzz}
+          whileTap={buzzDisabled ? undefined : { scale: 0.92, rotateX: 12 }}
+          animate={
+            isBuzzing
+              ? { scale: 0.96 }
+              : {
+                  scale: [1, 1.06, 1],
+                  rotateX: [0, -6, 0],
+                  boxShadow: [
+                    "0 18px 0 #b45309, 0 0 0 0 rgba(255,215,0,0.55)",
+                    "0 22px 0 #b45309, 0 0 60px 18px rgba(34,197,94,0.45)",
+                    "0 18px 0 #b45309, 0 0 0 0 rgba(255,215,0,0.55)",
+                  ],
+                }
+          }
+          transition={{ duration: 0.85, repeat: Infinity, ease: "easeInOut" }}
+          className={`relative z-10 flex aspect-square w-[min(80vw,80vh)] max-w-[28rem] items-center justify-center rounded-full border-8 border-white/30 text-center font-black leading-none text-jeopardy-blue-dark ${
+            isBuzzing
+              ? "bg-gradient-to-b from-yellow-600 to-amber-800 text-white/90"
+              : "bg-gradient-to-b from-jeopardy-gold via-yellow-300 to-amber-500"
+          }`}
+          style={{
+            transformStyle: "preserve-3d",
+            textShadow: "0 2px 0 rgba(255,255,255,0.35)",
+          }}
+        >
+          <span className="flex flex-col items-center gap-2 px-4">
+            <span className="text-[clamp(3.5rem,14vw,6rem)] leading-none">
+              {isBuzzing ? "…" : "🔔"}
+            </span>
+            <span className="text-[clamp(2.4rem,11vw,4.5rem)] tracking-tight">
+              {isBuzzing ? "SENT" : "BUZZ!"}
+            </span>
+            {!isBuzzing && (
+              <span className="text-[clamp(1.1rem,4.5vw,1.75rem)] font-extrabold tracking-wide text-jeopardy-blue-dark/80">
+                დააჭირე!
+              </span>
+            )}
+          </span>
+        </motion.button>
+
+        {activeQuestion && (
+          <p className="relative z-10 mt-5 max-w-sm text-center text-xs text-white/70">
+            {activeQuestion.categoryName} · ${activeQuestion.value}
+          </p>
+        )}
+      </main>
+    );
+  }
+
+  if (showFullScreenBuzz && playerUiState === "you_buzzed") {
+    return (
+      <main className="relative flex min-h-dvh w-full flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-green-600 via-green-700 to-jeopardy-blue-dark px-4">
+        <motion.div
+          animate={{ scale: [1, 1.05, 1], opacity: [0.85, 1, 0.85] }}
+          transition={{ duration: 0.9, repeat: Infinity }}
+          className="flex aspect-square w-[min(80vw,80vh)] max-w-[28rem] flex-col items-center justify-center rounded-full bg-green-400 text-center shadow-[0_0_80px_rgba(34,197,94,0.7)] ring-8 ring-white/40"
+        >
+          <span className="text-[clamp(3rem,12vw,5rem)]">⚡</span>
+          <span className="mt-2 text-[clamp(1.6rem,7vw,2.75rem)] font-black leading-tight text-white">
+            YOU BUZZED
+            <br />
+            IN!
+          </span>
+        </motion.div>
+        <p className="mt-6 text-lg font-bold text-white">{resolvedName}</p>
+      </main>
+    );
+  }
+
+  if (showFullScreenBuzz && playerUiState === "locked_out") {
+    return (
+      <main className="relative flex min-h-dvh w-full flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-red-950 via-jeopardy-blue-dark to-black px-4">
+        <div className="flex aspect-square w-[min(80vw,80vh)] max-w-[28rem] flex-col items-center justify-center rounded-full bg-red-950/90 px-6 text-center ring-8 ring-red-500/40">
+          <span className="text-[clamp(3rem,12vw,5rem)]">🔒</span>
+          <span className="mt-3 text-[clamp(1.4rem,6vw,2.25rem)] font-black leading-tight text-red-100">
+            LOCKED
+          </span>
+          <span className="mt-3 text-base font-bold text-red-200/90">
+            {buzzedPlayer?.teamName ?? "Another team"} buzzed first
+          </span>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-jeopardy-blue-dark px-5 py-8">
@@ -316,90 +448,16 @@ export default function MobileBuzzerView({
         </p>
       </div>
 
-      {activeQuestion && (
-        <div className="mt-6 rounded-xl bg-jeopardy-blue/60 px-4 py-3 text-center ring-1 ring-jeopardy-gold/20">
-          <p className="text-xs uppercase tracking-widest text-jeopardy-gold/70">
-            {activeQuestion.categoryName} · ${activeQuestion.value}
-          </p>
-          <p className="mt-2 text-sm leading-snug text-white/90">
-            {activeQuestion.question}
-          </p>
-        </div>
-      )}
-
       <div className="flex flex-1 flex-col items-center justify-center py-10">
-        {playerUiState === "waiting" && (
-          <button
-            type="button"
-            disabled
-            className="flex h-56 w-56 items-center justify-center rounded-full bg-white/10 text-center text-lg font-bold text-white/40"
-          >
-            Waiting for
-            <br />
-            next question…
-          </button>
-        )}
-
-        {(playerUiState === "ready" || isBuzzing) &&
-          playerUiState !== "you_buzzed" &&
-          playerUiState !== "locked_out" && (
-            <motion.button
-              type="button"
-              disabled={buzzDisabled}
-              onClick={handleBuzz}
-              whileTap={buzzDisabled ? undefined : { scale: 0.94 }}
-              animate={
-                buzzDisabled
-                  ? undefined
-                  : {
-                      boxShadow: [
-                        "0 0 0 0 rgba(255, 215, 0, 0.55)",
-                        "0 0 0 28px rgba(255, 215, 0, 0)",
-                      ],
-                    }
-              }
-              transition={{ duration: 1.2, repeat: Infinity }}
-              className={`flex h-56 w-56 items-center justify-center rounded-full text-center text-2xl font-black leading-tight ${
-                isBuzzing
-                  ? "bg-yellow-700/80 text-white/80"
-                  : "bg-gradient-to-b from-jeopardy-gold to-yellow-500 text-jeopardy-blue-dark"
-              } disabled:cursor-not-allowed`}
-            >
-              {isBuzzing ? (
-                <>
-                  BUZZ
-                  <br />
-                  SENT…
-                </>
-              ) : (
-                <>
-                  READY!
-                  <br />
-                  PRESS BUZZ! 🔔
-                </>
-              )}
-            </motion.button>
-          )}
-
-        {playerUiState === "you_buzzed" && (
-          <motion.div
-            animate={{ scale: [1, 1.04, 1] }}
-            transition={{ duration: 0.9, repeat: Infinity }}
-            className="flex h-56 w-56 items-center justify-center rounded-full bg-green-500 text-center text-xl font-black leading-tight text-white shadow-[0_0_40px_rgba(34,197,94,0.55)]"
-          >
-            YOU BUZZED
-            <br />
-            IN FIRST!
-          </motion.div>
-        )}
-
-        {playerUiState === "locked_out" && (
-          <div className="flex h-56 w-56 flex-col items-center justify-center rounded-full bg-red-950/80 px-4 text-center text-lg font-bold leading-snug text-red-200 ring-2 ring-red-500/40">
-            <span>{buzzedPlayer?.teamName ?? "Another team"}</span>
-            <span>buzzed in first</span>
-            <span className="mt-2 text-sm opacity-70">Locked</span>
-          </div>
-        )}
+        <button
+          type="button"
+          disabled
+          className="flex h-56 w-56 items-center justify-center rounded-full bg-white/10 text-center text-lg font-bold text-white/40"
+        >
+          Waiting for
+          <br />
+          next question…
+        </button>
       </div>
     </main>
   );

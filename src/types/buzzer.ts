@@ -46,6 +46,10 @@ export interface QuestionOpenedPayload {
   categoryName: string;
   value: number;
   question: string;
+  /** Optional routing metadata for multi-room tournaments */
+  roomId?: string;
+  tournamentId?: string | null;
+  isBuzzerLocked?: boolean;
 }
 
 export interface PlayerBuzzedPayload {

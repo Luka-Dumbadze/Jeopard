@@ -1,19 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { useHostBuzzer } from "@/components/buzzer/HostBuzzerProvider";
 import { useRoomId } from "@/components/room/RoomProvider";
 import { useActionLock } from "@/hooks/useActionLock";
 import { playRevealSound, playScoreAwardSound } from "@/lib/audio";
 import { useTournamentStore } from "@/store/tournamentStore";
+import { isTournamentId } from "@/types/cloudTournament";
 import { getRoomTeams } from "@/types/tournament";
 
 export default function QuestionModal() {
   const roomId = useRoomId();
+  const searchParams = useSearchParams();
+  const tournamentParam = searchParams.get("t");
+
   const room = useTournamentStore((state) => state.rooms[roomId]);
   const gameData = useTournamentStore((state) => state.gameData);
   const allTeams = useTournamentStore((state) => state.teams);
+  const storeTournamentId = useTournamentStore((state) => state.tournamentId);
   const revealAnswer = useTournamentStore((state) => state.revealAnswer);
   const closeQuestion = useTournamentStore((state) => state.closeQuestion);
   const awardTileValue = useTournamentStore((state) => state.awardTileValue);
@@ -23,8 +29,15 @@ export default function QuestionModal() {
   const isAnswerRevealed = room.isAnswerRevealed;
   const teams = getRoomTeams(room, allTeams);
 
+  const tournamentId =
+    (storeTournamentId && isTournamentId(storeTournamentId)
+      ? storeTournamentId
+      : null) ??
+    (isTournamentId(tournamentParam) ? tournamentParam!.trim() : null);
+
   const {
     buzzedPlayer,
+    isConnected,
     broadcastQuestionOpened,
     resetBuzzers,
     lockBuzzers,
@@ -42,6 +55,8 @@ export default function QuestionModal() {
 
   const lastBroadcastKeyRef = useRef<string | null>(null);
 
+  // Broadcast QUESTION_OPENED + BUZZERS_UNLOCKED whenever a tile opens.
+  // Re-fire when the realtime channel becomes SUBSCRIBED so early clicks are not lost.
   useEffect(() => {
     if (!activeQuestion) {
       lastBroadcastKeyRef.current = null;
@@ -51,8 +66,16 @@ export default function QuestionModal() {
     }
 
     const key = `${activeQuestion.categoryIndex}-${activeQuestion.questionIndex}`;
-    if (lastBroadcastKeyRef.current === key) return;
-    lastBroadcastKeyRef.current = key;
+    const broadcastKey = `${key}|connected:${isConnected ? "1" : "0"}`;
+
+    // Skip duplicate while still disconnected (queued once is enough)
+    if (!isConnected) {
+      if (lastBroadcastKeyRef.current?.startsWith(`${key}|`)) return;
+    } else if (lastBroadcastKeyRef.current === broadcastKey) {
+      return;
+    }
+
+    lastBroadcastKeyRef.current = broadcastKey;
 
     broadcastQuestionOpened({
       categoryIndex: activeQuestion.categoryIndex,
@@ -60,10 +83,16 @@ export default function QuestionModal() {
       categoryName,
       value: activeQuestion.question.value,
       question: activeQuestion.question.question,
+      roomId,
+      tournamentId,
+      isBuzzerLocked: false,
     });
   }, [
     activeQuestion,
     categoryName,
+    roomId,
+    tournamentId,
+    isConnected,
     broadcastQuestionOpened,
     lockBuzzers,
     unlockScore,
@@ -172,6 +201,13 @@ export default function QuestionModal() {
               <span className="text-3xl font-bold text-jeopardy-gold md:text-4xl">
                 ${activeQuestion.question.value.toLocaleString()}
               </span>
+              <p
+                className={`mt-1 text-xs font-bold ${
+                  isConnected ? "text-green-400" : "text-yellow-300"
+                }`}
+              >
+                Buzzers {isConnected ? "LIVE" : "connecting…"}
+              </p>
             </div>
 
             <div className="flex flex-1 flex-col items-center justify-center gap-8 overflow-y-auto px-6 py-10 md:px-16">
@@ -226,7 +262,7 @@ export default function QuestionModal() {
                   onClick={resetBuzzers}
                   className="rounded-lg border border-green-400/50 bg-green-900/50 px-4 py-2 text-sm font-bold text-green-100 transition hover:bg-green-800/70 active:scale-95"
                 >
-                  Reset / Unlock Buzzers
+                  {"\u{1F513}"} Unlock / Reset Buzzers
                 </button>
               </div>
 

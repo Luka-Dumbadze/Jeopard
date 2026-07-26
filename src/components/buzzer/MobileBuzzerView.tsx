@@ -375,7 +375,7 @@ export default function MobileBuzzerView({
                 <>
                   READY!
                   <br />
-                  PRESS BUZZ!
+                  PRESS BUZZ! 🔔
                 </>
               )}
             </motion.button>

@@ -10,7 +10,7 @@ import {
   isTournamentRoomCode,
   normalizeRoomCode,
 } from "@/types/buzzer";
-import { getBuzzerChannelName } from "@/lib/supabase/client";
+import { getRoomChannelName } from "@/lib/supabase/client";
 
 describe("tournament rooms", () => {
   it("defines exactly 4 room ids", () => {
@@ -51,10 +51,10 @@ describe("room codes", () => {
     expect(isTournamentRoomCode("ROOM-4")).toBe(true);
   });
 
-  it("builds stable realtime channel names per room", () => {
-    expect(getBuzzerChannelName("ROOM-1")).toBe("jeopardy-room-ROOM-1");
-    expect(getBuzzerChannelName("room-2")).toBe("jeopardy-room-ROOM-2");
-    expect(getBuzzerChannelName("ROOM-1", "TOURNAMENT-2026-AB12")).toBe(
+  it("builds stable realtime channel names per room via getRoomChannelName", () => {
+    expect(getRoomChannelName("ROOM-1")).toBe("jeopardy-room-ROOM-1");
+    expect(getRoomChannelName("room-2")).toBe("jeopardy-room-ROOM-2");
+    expect(getRoomChannelName("ROOM-1", "TOURNAMENT-2026-AB12")).toBe(
       "jeopardy-TOURNAMENT-2026-AB12-ROOM-1"
     );
   });

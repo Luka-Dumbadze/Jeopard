@@ -67,15 +67,27 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 }
 
-export function getBuzzerChannelName(
-  roomCode: string,
+/**
+ * Deterministic Realtime channel for a room projector + its mobile buzzers.
+ * Host (`/room/[roomId]`) and players (`/buzz`) MUST use the same name.
+ */
+export function getRoomChannelName(
+  roomId: string,
   tournamentId?: string | null
 ): string {
-  const room = roomCode.trim().toUpperCase().replace(/\s+/g, "");
+  const room = roomId.trim().toUpperCase().replace(/\s+/g, "");
   if (tournamentId && tournamentId.trim()) {
     const tournament = tournamentId.trim().toUpperCase().replace(/\s+/g, "");
-    // Isolate buzzers per tournament + room across parallel events
     return `jeopardy-${tournament}-${room}`;
   }
   return `jeopardy-room-${room}`;
 }
+
+/** @deprecated Prefer getRoomChannelName — kept as a stable alias. */
+export function getBuzzerChannelName(
+  roomCode: string,
+  tournamentId?: string | null
+): string {
+  return getRoomChannelName(roomCode, tournamentId);
+}
+

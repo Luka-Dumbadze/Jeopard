@@ -3,7 +3,7 @@ import {
   generateRoomCode,
   normalizeRoomCode,
 } from "@/types/buzzer";
-import { getBuzzerChannelName } from "@/lib/supabase/client";
+import { getBuzzerChannelName, getRoomChannelName } from "@/lib/supabase/client";
 
 describe("legacy room codes", () => {
   it("generates ROOM-XXXX format", () => {
@@ -17,6 +17,7 @@ describe("legacy room codes", () => {
   });
 
   it("builds channel names for legacy codes", () => {
+    expect(getRoomChannelName("ROOM-4821")).toBe("jeopardy-room-ROOM-4821");
     expect(getBuzzerChannelName("ROOM-4821")).toBe("jeopardy-room-ROOM-4821");
   });
 });

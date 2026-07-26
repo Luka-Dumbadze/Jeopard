@@ -1,8 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useJeopardyBuzzer } from "@/hooks/useJeopardyBuzzer";
+import { installAudioUnlockListener } from "@/lib/audio";
+import {
+  resolvePlayerBuzzerState,
+  savePlayerBuzzerState,
+} from "@/lib/playerLocalState";
 import { normalizeRoomCode } from "@/types/buzzer";
 
 interface MobileBuzzerViewProps {
@@ -18,6 +23,12 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedTeamName, setSelectedTeamName] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
+  const [isBuzzing, setIsBuzzing] = useState(false);
+  const [sessionMismatchNotice, setSessionMismatchNotice] = useState(false);
+
+  useEffect(() => {
+    installAudioUnlockListener();
+  }, []);
 
   const playerTeamId = joined ? selectedTeamId : null;
   const playerTeamName = joined ? selectedTeamName : null;
@@ -25,6 +36,7 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
   const {
     isConfigured,
     isConnected,
+    sessionId,
     sessionTeams,
     playerUiState,
     buzzedPlayer,
@@ -38,15 +50,67 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
     playerTeamName,
   });
 
+  // Stale localStorage invalidation when tournament session changes
+  useEffect(() => {
+    if (!roomCode || !sessionId) return;
+
+    const { state, clearedDueToMismatch } = resolvePlayerBuzzerState(
+      roomCode,
+      sessionId
+    );
+
+    if (clearedDueToMismatch) {
+      setSelectedTeamId(null);
+      setSelectedTeamName(null);
+      setJoined(false);
+      setSessionMismatchNotice(true);
+      return;
+    }
+
+    if (!state) return;
+
+    setSelectedTeamId(state.teamId);
+    setSelectedTeamName(state.teamName);
+    setJoined(true);
+    setSessionMismatchNotice(false);
+  }, [roomCode, sessionId]);
+
+  // Reset buzz lock when host unlocks / new question
+  useEffect(() => {
+    if (playerUiState === "ready" || playerUiState === "waiting") {
+      setIsBuzzing(false);
+    }
+  }, [playerUiState, activeQuestion]);
+
   const resolvedName = playerTeamName ?? "Player";
   const canJoin = roomCode.length > 0 && Boolean(selectedTeamId);
 
+  const handleJoin = () => {
+    if (!canJoin || !selectedTeamId || !selectedTeamName || !sessionId) return;
+    savePlayerBuzzerState({
+      sessionId,
+      roomId: roomCode,
+      teamId: selectedTeamId,
+      teamName: selectedTeamName,
+    });
+    setJoined(true);
+    setSessionMismatchNotice(false);
+  };
+
   const handleBuzz = () => {
-    if (playerUiState !== "ready") return;
+    if (playerUiState !== "ready" || isBuzzing) return;
+
+    // Instant client-side debounce / spam prevention
+    setIsBuzzing(true);
+
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       navigator.vibrate([150]);
     }
-    sendBuzz();
+
+    const sent = sendBuzz();
+    if (!sent) {
+      setIsBuzzing(false);
+    }
   };
 
   if (!roomCode) {
@@ -87,6 +151,12 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
             : "Connecting to realtime room…"}
         </p>
 
+        {sessionMismatchNotice && (
+          <p className="mt-4 rounded-lg bg-amber-900/40 px-3 py-2 text-center text-sm text-amber-100">
+            New tournament detected — please pick your team again.
+          </p>
+        )}
+
         <div className="mt-8 space-y-3">
           {sessionTeams.length === 0 ? (
             <p className="rounded-xl bg-black/30 px-4 py-6 text-center text-sm text-white/60">
@@ -121,8 +191,8 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
 
         <button
           type="button"
-          disabled={!canJoin}
-          onClick={() => setJoined(true)}
+          disabled={!canJoin || !sessionId}
+          onClick={handleJoin}
           className="mt-8 rounded-xl bg-jeopardy-gold py-4 text-lg font-bold text-jeopardy-blue-dark transition enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Join Buzzer
@@ -130,6 +200,8 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
       </main>
     );
   }
+
+  const buzzDisabled = playerUiState !== "ready" || isBuzzing;
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-jeopardy-blue-dark px-5 py-8">
@@ -171,25 +243,46 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
           </button>
         )}
 
-        {playerUiState === "ready" && (
-          <motion.button
-            type="button"
-            onClick={handleBuzz}
-            whileTap={{ scale: 0.94 }}
-            animate={{
-              boxShadow: [
-                "0 0 0 0 rgba(255, 215, 0, 0.55)",
-                "0 0 0 28px rgba(255, 215, 0, 0)",
-              ],
-            }}
-            transition={{ duration: 1.2, repeat: Infinity }}
-            className="flex h-56 w-56 items-center justify-center rounded-full bg-gradient-to-b from-jeopardy-gold to-yellow-500 text-center text-2xl font-black leading-tight text-jeopardy-blue-dark"
-          >
-            READY!
-            <br />
-            PRESS BUZZ!
-          </motion.button>
-        )}
+        {(playerUiState === "ready" || isBuzzing) &&
+          playerUiState !== "you_buzzed" &&
+          playerUiState !== "locked_out" && (
+            <motion.button
+              type="button"
+              disabled={buzzDisabled}
+              onClick={handleBuzz}
+              whileTap={buzzDisabled ? undefined : { scale: 0.94 }}
+              animate={
+                buzzDisabled
+                  ? undefined
+                  : {
+                      boxShadow: [
+                        "0 0 0 0 rgba(255, 215, 0, 0.55)",
+                        "0 0 0 28px rgba(255, 215, 0, 0)",
+                      ],
+                    }
+              }
+              transition={{ duration: 1.2, repeat: Infinity }}
+              className={`flex h-56 w-56 items-center justify-center rounded-full text-center text-2xl font-black leading-tight ${
+                isBuzzing
+                  ? "bg-yellow-700/80 text-white/80"
+                  : "bg-gradient-to-b from-jeopardy-gold to-yellow-500 text-jeopardy-blue-dark"
+              } disabled:cursor-not-allowed`}
+            >
+              {isBuzzing ? (
+                <>
+                  BUZZ
+                  <br />
+                  SENT…
+                </>
+              ) : (
+                <>
+                  READY!
+                  <br />
+                  PRESS BUZZ!
+                </>
+              )}
+            </motion.button>
+          )}
 
         {playerUiState === "you_buzzed" && (
           <motion.div

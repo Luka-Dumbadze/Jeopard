@@ -2,9 +2,10 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 /** Legacy single-game route — redirect to tournament dashboard. */
-export default function LegacyGameRedirect() {
+function LegacyGameRedirectInner() {
   const router = useRouter();
 
   useEffect(() => {
@@ -15,5 +16,13 @@ export default function LegacyGameRedirect() {
     <main className="flex min-h-screen items-center justify-center bg-jeopardy-blue-dark">
       <p className="text-jeopardy-gold">Redirecting to tournament dashboard…</p>
     </main>
+  );
+}
+
+export default function LegacyGameRedirect() {
+  return (
+    <ErrorBoundary label="Legacy Game">
+      <LegacyGameRedirectInner />
+    </ErrorBoundary>
   );
 }

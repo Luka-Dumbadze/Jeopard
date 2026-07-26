@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { motion } from "framer-motion";
+import { useActionLock } from "@/hooks/useActionLock";
 import {
   GameDataValidationError,
   parseGameFile,
@@ -18,6 +19,7 @@ import {
 
 export default function TournamentSetup() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasHydrated = useTournamentStore((state) => state.hasHydrated);
   const setHasHydrated = useTournamentStore((state) => state.setHasHydrated);
   const gameData = useTournamentStore((state) => state.gameData);
@@ -36,9 +38,18 @@ export default function TournamentSetup() {
   const [isLoading, setIsLoading] = useState(false);
   const [origin, setOrigin] = useState("");
   const [copiedRoom, setCopiedRoom] = useState<RoomId | null>(null);
+  const { locked: createLocked, run: runCreate } = useActionLock(800);
 
   useEffect(() => {
     setOrigin(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) {
+        clearTimeout(copyTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -52,6 +63,7 @@ export default function TournamentSetup() {
 
   const handleFile = useCallback(
     async (file: File) => {
+      if (isLoading) return;
       if (!file.name.endsWith(".json")) {
         setError("Please upload a .json file.");
         return;
@@ -73,7 +85,7 @@ export default function TournamentSetup() {
         setIsLoading(false);
       }
     },
-    [setGameData]
+    [setGameData, isLoading]
   );
 
   const pairings = useMemo(
@@ -89,8 +101,10 @@ export default function TournamentSetup() {
   const canCreate = Boolean(gameData) && teams.length === 8;
 
   const handleCreate = () => {
-    if (!canCreate) return;
-    createTournament();
+    if (!canCreate || createLocked) return;
+    runCreate(() => {
+      createTournament();
+    });
   };
 
   const copyLink = async (roomId: RoomId) => {
@@ -98,7 +112,11 @@ export default function TournamentSetup() {
     try {
       await navigator.clipboard.writeText(url);
       setCopiedRoom(roomId);
-      window.setTimeout(() => setCopiedRoom(null), 1500);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => {
+        copyTimerRef.current = null;
+        setCopiedRoom(null);
+      }, 1500);
     } catch {
       setError("Could not copy link");
     }
@@ -326,11 +344,13 @@ export default function TournamentSetup() {
 
         <button
           type="button"
-          disabled={!canCreate}
+          disabled={!canCreate || createLocked}
           onClick={handleCreate}
           className="mt-8 w-full rounded-2xl bg-jeopardy-gold py-4 text-lg font-bold text-jeopardy-blue-dark transition enabled:hover:bg-yellow-300 enabled:active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          4-ოთახიანი ტურნირის შექმნა (Create 4-Room Tournament)
+          {createLocked
+            ? "Creating…"
+            : "4-ოთახიანი ტურნირის შექმნა (Create 4-Room Tournament)"}
         </button>
       </div>
     </main>

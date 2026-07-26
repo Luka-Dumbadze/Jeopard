@@ -9,6 +9,7 @@ type AudioWindow = Window &
   };
 
 let sharedContext: AudioContext | null = null;
+let unlockInstalled = false;
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -26,6 +27,31 @@ function getAudioContext(): AudioContext | null {
   }
 
   return sharedContext;
+}
+
+/**
+ * iOS/Android require a user gesture before AudioContext can play.
+ * Installs a one-time touchstart/click unlocker on first import in the browser.
+ */
+export function installAudioUnlockListener(): void {
+  if (typeof window === "undefined" || unlockInstalled) return;
+  unlockInstalled = true;
+
+  const unlock = () => {
+    const ctx = getAudioContext();
+    if (ctx && ctx.state === "suspended") {
+      void ctx.resume();
+    }
+    window.removeEventListener("touchstart", unlock);
+    window.removeEventListener("click", unlock);
+  };
+
+  window.addEventListener("touchstart", unlock, { once: true, passive: true });
+  window.addEventListener("click", unlock, { once: true });
+}
+
+if (typeof window !== "undefined") {
+  installAudioUnlockListener();
 }
 
 function playTone(
@@ -67,6 +93,7 @@ function playTone(
 
 /** Upbeat Jeopardy-style chime when opening a tile. */
 export function playTileOpenSound(): void {
+  installAudioUnlockListener();
   const ctx = getAudioContext();
   if (!ctx) return;
 
@@ -78,6 +105,7 @@ export function playTileOpenSound(): void {
 
 /** Sound effect when revealing the answer. */
 export function playRevealSound(): void {
+  installAudioUnlockListener();
   const ctx = getAudioContext();
   if (!ctx) return;
 
@@ -89,6 +117,7 @@ export function playRevealSound(): void {
 
 /** Cash-register / positive chime when awarding points. */
 export function playScoreAwardSound(): void {
+  installAudioUnlockListener();
   const ctx = getAudioContext();
   if (!ctx) return;
 
@@ -104,6 +133,7 @@ export function playScoreAwardSound(): void {
 
 /** Triumphant fanfare melody when the game ends. */
 export function playVictoryFanfare(): void {
+  installAudioUnlockListener();
   const ctx = getAudioContext();
   if (!ctx) return;
 
@@ -128,16 +158,14 @@ export function playVictoryFanfare(): void {
  * Classic TV game-show buzzer: dissonant low dual square-wave pulse.
  */
 export function playBuzzerSound(): void {
+  installAudioUnlockListener();
   const ctx = getAudioContext();
   if (!ctx) return;
 
   const now = ctx.currentTime;
 
-  // Primary harsh buzz
   playTone(98, now, 0.4, { type: "square", gain: 0.22 });
-  // Slightly detuned companion for classic buzz-in grit
   playTone(104, now, 0.4, { type: "square", gain: 0.16 });
-  // Second pulse
   playTone(87, now + 0.38, 0.28, { type: "square", gain: 0.2 });
   playTone(92, now + 0.38, 0.28, { type: "square", gain: 0.14 });
 }

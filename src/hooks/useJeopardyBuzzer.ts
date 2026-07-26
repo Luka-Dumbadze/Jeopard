@@ -14,6 +14,7 @@ import type {
   BuzzerPayloadMap,
   PlayerBuzzedPayload,
   QuestionOpenedPayload,
+  RoomStateSyncPayload,
   SessionSyncPayload,
 } from "@/types/buzzer";
 import type { Team } from "@/types/game";
@@ -26,13 +27,25 @@ export type PlayerBuzzerUiState =
   | "you_buzzed"
   | "locked_out";
 
+export interface HostRoomSnapshot {
+  sessionId: string;
+  teams: Team[];
+  gameTitle: string | null;
+  activeQuestion: QuestionOpenedPayload | null;
+  buzzersOpen: boolean;
+  buzzedPlayer: PlayerBuzzedPayload | null;
+}
+
 interface UseJeopardyBuzzerOptions {
   role: BuzzerRole;
   roomCode: string;
   /** Host: current teams for SESSION_SYNC */
   teams?: Team[];
   gameTitle?: string | null;
+  sessionId?: string;
   enabled?: boolean;
+  /** Host: live source-of-truth snapshot for reconnect hydration */
+  getHostSnapshot?: () => HostRoomSnapshot | null;
   /** Player identity after team selection */
   playerTeamId?: string | null;
   playerTeamName?: string | null;
@@ -41,6 +54,7 @@ interface UseJeopardyBuzzerOptions {
 interface UseJeopardyBuzzerResult {
   isConfigured: boolean;
   isConnected: boolean;
+  sessionId: string | null;
   buzzedPlayer: PlayerBuzzedPayload | null;
   buzzersOpen: boolean;
   activeQuestion: QuestionOpenedPayload | null;
@@ -50,7 +64,8 @@ interface UseJeopardyBuzzerResult {
   resetBuzzers: () => void;
   lockBuzzers: () => void;
   syncSession: () => void;
-  sendBuzz: () => void;
+  resyncFromSourceOfTruth: () => void;
+  sendBuzz: () => boolean;
 }
 
 export type { UseJeopardyBuzzerResult };
@@ -76,13 +91,18 @@ export function useJeopardyBuzzer(
     roomCode,
     teams = [],
     gameTitle = null,
+    sessionId: sessionIdProp = "",
     enabled = true,
+    getHostSnapshot,
     playerTeamId = null,
     playerTeamName = null,
   } = options;
 
   const isConfigured = isSupabaseConfigured();
   const [isConnected, setIsConnected] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(
+    sessionIdProp || null
+  );
   const [buzzedPlayer, setBuzzedPlayer] = useState<PlayerBuzzedPayload | null>(
     null
   );
@@ -95,16 +115,76 @@ export function useJeopardyBuzzer(
   const firstBuzzLockedRef = useRef(false);
   const teamsRef = useRef(teams);
   const gameTitleRef = useRef(gameTitle);
+  const sessionIdRef = useRef(sessionIdProp);
+  const getHostSnapshotRef = useRef(getHostSnapshot);
+  const buzzedPlayerRef = useRef<PlayerBuzzedPayload | null>(null);
+  const activeQuestionRef = useRef<QuestionOpenedPayload | null>(null);
+  const buzzersOpenRef = useRef(false);
   const playerIdRef = useRef(
     typeof crypto !== "undefined" ? crypto.randomUUID() : `player-${Date.now()}`
   );
 
   teamsRef.current = teams;
   gameTitleRef.current = gameTitle;
+  sessionIdRef.current = sessionIdProp || sessionId || "";
+  getHostSnapshotRef.current = getHostSnapshot;
+  buzzedPlayerRef.current = buzzedPlayer;
+  activeQuestionRef.current = activeQuestion;
+  buzzersOpenRef.current = buzzersOpen;
+
+  const applyRoomState = useCallback((data: RoomStateSyncPayload) => {
+    setSessionId(data.sessionId);
+    setSessionTeams(data.teams ?? []);
+    setActiveQuestion(data.activeQuestion);
+    setBuzzersOpen(Boolean(data.buzzersOpen));
+    setBuzzedPlayer(data.buzzedPlayer);
+    firstBuzzLockedRef.current = Boolean(data.buzzedPlayer);
+  }, []);
+
+  const buildHostSnapshotPayload = useCallback((): RoomStateSyncPayload => {
+    const snapshot = getHostSnapshotRef.current?.();
+    const baseTeams = snapshot?.teams ?? teamsRef.current;
+    const baseTitle = snapshot?.gameTitle ?? gameTitleRef.current;
+    const baseSession = snapshot?.sessionId ?? sessionIdRef.current;
+
+    // Prefer live hook buzz/question state (authoritative during an open tile)
+    return {
+      sessionId: baseSession,
+      roomCode,
+      gameTitle: baseTitle,
+      teams: baseTeams,
+      activeQuestion:
+        activeQuestionRef.current ?? snapshot?.activeQuestion ?? null,
+      buzzersOpen: buzzedPlayerRef.current
+        ? false
+        : (buzzersOpenRef.current || Boolean(snapshot?.buzzersOpen)),
+      buzzedPlayer: buzzedPlayerRef.current ?? snapshot?.buzzedPlayer ?? null,
+    };
+  }, [roomCode]);
+
+  const resyncFromSourceOfTruth = useCallback(() => {
+    if (role === "host") {
+      const payload = buildHostSnapshotPayload();
+      sendBroadcast(channelRef.current, "ROOM_STATE_SYNC", payload);
+      sendBroadcast(channelRef.current, "SESSION_SYNC", {
+        sessionId: payload.sessionId,
+        roomCode: payload.roomCode,
+        gameTitle: payload.gameTitle,
+        teams: payload.teams,
+      });
+      return;
+    }
+
+    // Player asks host for authoritative snapshot after reconnect
+    sendBroadcast(channelRef.current, "STATE_REFETCH_REQUEST", {
+      playerId: playerIdRef.current,
+    });
+  }, [role, buildHostSnapshotPayload]);
 
   const syncSession = useCallback(() => {
     if (role !== "host") return;
     const payload: SessionSyncPayload = {
+      sessionId: sessionIdRef.current,
       roomCode,
       gameTitle: gameTitleRef.current,
       teams: teamsRef.current,
@@ -150,14 +230,15 @@ export function useJeopardyBuzzer(
       sendBroadcast(channelRef.current, "QUESTION_OPENED", payload);
       sendBroadcast(channelRef.current, "BUZZERS_UNLOCKED", {});
       syncSession();
+      resyncFromSourceOfTruth();
     },
-    [syncSession]
+    [syncSession, resyncFromSourceOfTruth]
   );
 
-  const sendBuzz = useCallback(() => {
-    if (role !== "player") return;
-    if (!buzzersOpen || firstBuzzLockedRef.current) return;
-    if (!playerTeamId || !playerTeamName) return;
+  const sendBuzz = useCallback((): boolean => {
+    if (role !== "player") return false;
+    if (!buzzersOpen || firstBuzzLockedRef.current) return false;
+    if (!playerTeamId || !playerTeamName) return false;
 
     const payload: PlayerBuzzedPayload = {
       teamId: playerTeamId,
@@ -166,16 +247,16 @@ export function useJeopardyBuzzer(
     };
 
     sendBroadcast(channelRef.current, "PLAYER_BUZZED", payload);
+    return true;
   }, [role, buzzersOpen, playerTeamId, playerTeamName]);
 
-  // Keep host session teams in sync for local state
   useEffect(() => {
     if (role === "host") {
       setSessionTeams(teams);
+      if (sessionIdProp) setSessionId(sessionIdProp);
     }
-  }, [role, teams]);
+  }, [role, teams, sessionIdProp]);
 
-  // Rebroadcast session when host teams change
   useEffect(() => {
     if (role !== "host" || !isConnected) return;
     syncSession();
@@ -202,7 +283,11 @@ export function useJeopardyBuzzer(
     channel
       .on("broadcast", { event: "SESSION_SYNC" }, ({ payload }) => {
         const data = payload as SessionSyncPayload;
+        setSessionId(data.sessionId ?? null);
         setSessionTeams(data.teams ?? []);
+      })
+      .on("broadcast", { event: "ROOM_STATE_SYNC" }, ({ payload }) => {
+        applyRoomState(payload as RoomStateSyncPayload);
       })
       .on("broadcast", { event: "QUESTION_OPENED" }, ({ payload }) => {
         const data = payload as QuestionOpenedPayload;
@@ -230,7 +315,6 @@ export function useJeopardyBuzzer(
             timestamp: Date.now(),
           });
         } else {
-          // Soft lock (question closed / no winner) → waiting state
           firstBuzzLockedRef.current = false;
           setBuzzedPlayer(null);
           setActiveQuestion(null);
@@ -243,8 +327,6 @@ export function useJeopardyBuzzer(
       })
       .on("broadcast", { event: "PLAYER_BUZZED" }, ({ payload }) => {
         const data = payload as PlayerBuzzedPayload;
-
-        // Host-only concurrency gate: first buzz wins; players wait for BUZZERS_LOCKED
         if (role !== "host") return;
         if (firstBuzzLockedRef.current) return;
 
@@ -259,19 +341,30 @@ export function useJeopardyBuzzer(
       })
       .on("broadcast", { event: "PLAYER_JOINED" }, () => {
         if (role === "host") {
-          syncSession();
+          resyncFromSourceOfTruth();
+        }
+      })
+      .on("broadcast", { event: "STATE_REFETCH_REQUEST" }, () => {
+        if (role === "host") {
+          resyncFromSourceOfTruth();
         }
       })
       .subscribe((status) => {
         const connected = status === "SUBSCRIBED";
         setIsConnected(connected);
-        if (connected && role === "host") {
-          syncSession();
-        }
-        if (connected && role === "player") {
-          sendBroadcast(channel, "PLAYER_JOINED", {
-            playerId: playerIdRef.current,
-          });
+
+        // Reconnect / first subscribe: always push or request source-of-truth
+        if (connected) {
+          if (role === "host") {
+            resyncFromSourceOfTruth();
+          } else {
+            sendBroadcast(channel, "PLAYER_JOINED", {
+              playerId: playerIdRef.current,
+            });
+            sendBroadcast(channel, "STATE_REFETCH_REQUEST", {
+              playerId: playerIdRef.current,
+            });
+          }
         }
       });
 
@@ -280,7 +373,15 @@ export function useJeopardyBuzzer(
       channelRef.current = null;
       void supabase.removeChannel(channel);
     };
-  }, [enabled, roomCode, isConfigured, role, syncSession]);
+  }, [
+    enabled,
+    roomCode,
+    isConfigured,
+    role,
+    syncSession,
+    resyncFromSourceOfTruth,
+    applyRoomState,
+  ]);
 
   let playerUiState: PlayerBuzzerUiState = "waiting";
   if (role === "player") {
@@ -299,6 +400,7 @@ export function useJeopardyBuzzer(
   return {
     isConfigured,
     isConnected,
+    sessionId,
     buzzedPlayer,
     buzzersOpen,
     activeQuestion,
@@ -308,6 +410,7 @@ export function useJeopardyBuzzer(
     resetBuzzers,
     lockBuzzers: () => lockBuzzers(null),
     syncSession,
+    resyncFromSourceOfTruth,
     sendBuzz,
   };
 }

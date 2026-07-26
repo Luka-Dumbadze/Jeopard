@@ -36,7 +36,9 @@ export type BuzzerEventType =
   | "BUZZER_RESET"
   | "PLAYER_BUZZED"
   | "SESSION_SYNC"
-  | "PLAYER_JOINED";
+  | "ROOM_STATE_SYNC"
+  | "PLAYER_JOINED"
+  | "STATE_REFETCH_REQUEST";
 
 export interface QuestionOpenedPayload {
   categoryIndex: number;
@@ -58,9 +60,21 @@ export interface BuzzersLockedPayload {
 }
 
 export interface SessionSyncPayload {
+  sessionId: string;
   roomCode: string;
   gameTitle: string | null;
   teams: Team[];
+}
+
+/** Full source-of-truth snapshot pushed on reconnect / join. */
+export interface RoomStateSyncPayload {
+  sessionId: string;
+  roomCode: string;
+  gameTitle: string | null;
+  teams: Team[];
+  activeQuestion: QuestionOpenedPayload | null;
+  buzzersOpen: boolean;
+  buzzedPlayer: PlayerBuzzedPayload | null;
 }
 
 export type BuzzerPayloadMap = {
@@ -70,5 +84,7 @@ export type BuzzerPayloadMap = {
   BUZZER_RESET: Record<string, never>;
   PLAYER_BUZZED: PlayerBuzzedPayload;
   SESSION_SYNC: SessionSyncPayload;
+  ROOM_STATE_SYNC: RoomStateSyncPayload;
   PLAYER_JOINED: { playerId: string };
+  STATE_REFETCH_REQUEST: { playerId: string };
 };

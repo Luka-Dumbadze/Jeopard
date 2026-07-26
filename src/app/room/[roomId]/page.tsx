@@ -1,3 +1,4 @@
+import ErrorBoundary from "@/components/ErrorBoundary";
 import RoomPageClient from "@/components/room/RoomPageClient";
 
 interface RoomPageProps {
@@ -6,5 +7,9 @@ interface RoomPageProps {
 
 export default async function RoomPage({ params }: RoomPageProps) {
   const { roomId } = await params;
-  return <RoomPageClient roomIdParam={roomId.toUpperCase()} />;
+  return (
+    <ErrorBoundary label={`Room ${roomId.toUpperCase()}`}>
+      <RoomPageClient roomIdParam={roomId.toUpperCase()} />
+    </ErrorBoundary>
+  );
 }

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { isBoardComplete } from "@/lib/board";
+import { mergeTournamentPersistedState } from "@/lib/tournamentPersist";
 import type { ActiveQuestion, GameData, TileKey } from "@/types/game";
 import {
   ROOM_IDS,
@@ -16,6 +17,8 @@ interface TournamentState {
   teams: TournamentTeam[];
   rooms: Record<RoomId, RoomState>;
   isTournamentActive: boolean;
+  /** Unique id per tournament instance — used to invalidate stale player caches */
+  sessionId: string;
   hasHydrated: boolean;
 
   setHasHydrated: (value: boolean) => void;
@@ -41,8 +44,6 @@ interface TournamentState {
   closeWinnerModal: (roomId: RoomId) => void;
   resetRoomBoard: (roomId: RoomId) => void;
 }
-
-type PersistedRoom = Omit<RoomState, "usedTiles"> & { usedTiles: TileKey[] };
 
 function adjustTeamScore(
   teams: TournamentTeam[],
@@ -70,7 +71,7 @@ function patchRoom(
 
 function createInitialState(): Pick<
   TournamentState,
-  "gameData" | "teams" | "rooms" | "isTournamentActive"
+  "gameData" | "teams" | "rooms" | "isTournamentActive" | "sessionId"
 > {
   const teams = createDefaultTeams();
   return {
@@ -78,6 +79,7 @@ function createInitialState(): Pick<
     teams,
     rooms: createEmptyRooms(teams),
     isTournamentActive: false,
+    sessionId: crypto.randomUUID(),
   };
 }
 
@@ -116,6 +118,7 @@ export const useTournamentStore = create<TournamentState>()(
           teams: resetTeams,
           rooms: createEmptyRooms(resetTeams),
           isTournamentActive: true,
+          sessionId: crypto.randomUUID(),
         });
       },
 
@@ -165,7 +168,6 @@ export const useTournamentStore = create<TournamentState>()(
               ? true
               : room.celebrationPlayed,
           }),
-          // keep teams reference; scores already updated elsewhere
           teams,
         });
       },
@@ -243,6 +245,7 @@ export const useTournamentStore = create<TournamentState>()(
         gameData: state.gameData,
         teams: state.teams,
         isTournamentActive: state.isTournamentActive,
+        sessionId: state.sessionId,
         rooms: Object.fromEntries(
           ROOM_IDS.map((id) => {
             const room = state.rooms[id];
@@ -254,44 +257,20 @@ export const useTournamentStore = create<TournamentState>()(
                 activeQuestion: null,
                 isAnswerRevealed: false,
                 isWinnerModalOpen: false,
-              } satisfies PersistedRoom,
+              },
             ];
           })
-        ) as Record<RoomId, PersistedRoom>,
+        ),
       }),
-      merge: (persisted, current) => {
-        const data = persisted as Partial<TournamentState> & {
-          rooms?: Record<RoomId, PersistedRoom>;
-        };
-
-        const teams = data.teams ?? current.teams;
-        const baseRooms = data.rooms
-          ? (Object.fromEntries(
-              ROOM_IDS.map((id) => {
-                const persistedRoom = data.rooms?.[id];
-                const fallback = current.rooms[id];
-                return [
-                  id,
-                  {
-                    ...(persistedRoom ?? fallback),
-                    usedTiles: new Set(persistedRoom?.usedTiles ?? []),
-                    activeQuestion: null,
-                    isAnswerRevealed: false,
-                    isWinnerModalOpen: false,
-                  } as RoomState,
-                ];
-              })
-            ) as Record<RoomId, RoomState>)
-          : createEmptyRooms(teams);
-
-        return {
-          ...current,
-          ...data,
-          teams,
-          rooms: baseRooms,
+      merge: (persisted, current) =>
+        mergeTournamentPersistedState(persisted, {
+          gameData: current.gameData,
+          teams: current.teams,
+          rooms: current.rooms,
+          isTournamentActive: current.isTournamentActive,
+          sessionId: current.sessionId,
           hasHydrated: current.hasHydrated,
-        };
-      },
+        }) as typeof current,
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.error("Failed to rehydrate tournament store", error);

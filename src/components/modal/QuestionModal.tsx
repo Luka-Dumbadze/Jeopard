@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useHostBuzzer } from "@/components/buzzer/HostBuzzerProvider";
 import { useRoomId } from "@/components/room/RoomProvider";
+import { useActionLock } from "@/hooks/useActionLock";
 import { playRevealSound, playScoreAwardSound } from "@/lib/audio";
 import { useTournamentStore } from "@/store/tournamentStore";
 import { getRoomTeams } from "@/types/tournament";
@@ -29,6 +30,9 @@ export default function QuestionModal() {
     lockBuzzers,
   } = useHostBuzzer();
 
+  const { locked: scoreLocked, run: runScoreAction, unlock: unlockScore } =
+    useActionLock(400);
+
   const categoryName = useMemo(() => {
     if (!activeQuestion || !gameData) return "";
     return (
@@ -42,6 +46,7 @@ export default function QuestionModal() {
     if (!activeQuestion) {
       lastBroadcastKeyRef.current = null;
       lockBuzzers();
+      unlockScore();
       return;
     }
 
@@ -61,6 +66,7 @@ export default function QuestionModal() {
     categoryName,
     broadcastQuestionOpened,
     lockBuzzers,
+    unlockScore,
   ]);
 
   useEffect(() => {
@@ -92,10 +98,12 @@ export default function QuestionModal() {
 
       if (event.key === "1" || event.key === "2") {
         const team = teams[Number(event.key) - 1];
-        if (!team) return;
+        if (!team || scoreLocked) return;
         event.preventDefault();
-        awardTileValue(roomId, team.id);
-        playScoreAwardSound();
+        runScoreAction(() => {
+          awardTileValue(roomId, team.id);
+          playScoreAwardSound();
+        });
       }
     };
 
@@ -109,6 +117,8 @@ export default function QuestionModal() {
     revealAnswer,
     closeQuestion,
     awardTileValue,
+    scoreLocked,
+    runScoreAction,
   ]);
 
   const handleReveal = () => {
@@ -248,18 +258,26 @@ export default function QuestionModal() {
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          awardTileValue(roomId, team.id);
-                          playScoreAwardSound();
-                        }}
-                        className="flex-1 rounded-lg bg-green-900/70 px-2 py-2 text-xs font-bold text-green-100 transition hover:bg-green-800 active:scale-95 sm:text-sm"
+                        disabled={scoreLocked}
+                        onClick={() =>
+                          runScoreAction(() => {
+                            awardTileValue(roomId, team.id);
+                            playScoreAwardSound();
+                          })
+                        }
+                        className="flex-1 rounded-lg bg-green-900/70 px-2 py-2 text-xs font-bold text-green-100 transition hover:bg-green-800 active:scale-95 disabled:opacity-50 sm:text-sm"
                       >
                         + ${activeQuestion.question.value.toLocaleString()}
                       </button>
                       <button
                         type="button"
-                        onClick={() => deductTileValue(roomId, team.id)}
-                        className="flex-1 rounded-lg bg-red-900/70 px-2 py-2 text-xs font-bold text-red-100 transition hover:bg-red-800 active:scale-95 sm:text-sm"
+                        disabled={scoreLocked}
+                        onClick={() =>
+                          runScoreAction(() => {
+                            deductTileValue(roomId, team.id);
+                          })
+                        }
+                        className="flex-1 rounded-lg bg-red-900/70 px-2 py-2 text-xs font-bold text-red-100 transition hover:bg-red-800 active:scale-95 disabled:opacity-50 sm:text-sm"
                       >
                         − ${activeQuestion.question.value.toLocaleString()}
                       </button>

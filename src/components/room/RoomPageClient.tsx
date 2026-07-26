@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import GameBoard from "@/components/board/GameBoard";
 import { HostBuzzerProvider, useHostBuzzer } from "@/components/buzzer/HostBuzzerProvider";
@@ -11,7 +12,12 @@ import { RoomProvider } from "@/components/room/RoomProvider";
 import Scoreboard from "@/components/scoreboard/Scoreboard";
 import { useHydration } from "@/hooks/useHydration";
 import { isBoardComplete } from "@/lib/board";
+import { fetchTournamentSession } from "@/lib/supabase/tournaments";
 import { useTournamentStore } from "@/store/tournamentStore";
+import {
+  buildBuzzHref,
+  isTournamentId,
+} from "@/types/cloudTournament";
 import {
   getRoomTeams,
   isRoomId,
@@ -20,21 +26,81 @@ import {
 
 function RoomViewInner({ roomId }: { roomId: RoomId }) {
   const hydrated = useHydration();
+  const searchParams = useSearchParams();
+  const tournamentParam = searchParams.get("t");
+
   const gameData = useTournamentStore((state) => state.gameData);
   const isTournamentActive = useTournamentStore(
     (state) => state.isTournamentActive
   );
+  const tournamentId = useTournamentStore((state) => state.tournamentId);
   const room = useTournamentStore((state) => state.rooms[roomId]);
   const teams = useTournamentStore((state) => state.teams);
   const openWinnerModal = useTournamentStore((state) => state.openWinnerModal);
+  const hydrateFromCloud = useTournamentStore((state) => state.hydrateFromCloud);
   const { isConfigured, isConnected } = useHostBuzzer();
 
   const [origin, setOrigin] = useState("");
   const [showQr, setShowQr] = useState(true);
+  const [cloudStatus, setCloudStatus] = useState<
+    "idle" | "loading" | "error" | "ready"
+  >("idle");
+  const [cloudError, setCloudError] = useState<string | null>(null);
 
   useEffect(() => {
     setOrigin(window.location.origin);
   }, []);
+
+  // Remote laptop hydration: empty/mismatched local store → fetch from Supabase
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const localReady =
+      isTournamentActive &&
+      Boolean(gameData) &&
+      (!tournamentParam || tournamentId === tournamentParam);
+
+    if (localReady) {
+      setCloudStatus("ready");
+      return;
+    }
+
+    if (!isTournamentId(tournamentParam)) {
+      setCloudStatus("ready");
+      return;
+    }
+
+    let cancelled = false;
+    setCloudStatus("loading");
+    setCloudError(null);
+
+    void (async () => {
+      const session = await fetchTournamentSession(tournamentParam!);
+      if (cancelled) return;
+
+      if (!session) {
+        setCloudStatus("error");
+        setCloudError(
+          "Could not load tournament from cloud. Check the link or Supabase config."
+        );
+        return;
+      }
+
+      hydrateFromCloud(session);
+      setCloudStatus("ready");
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hydrated,
+    tournamentParam,
+    tournamentId,
+    isTournamentActive,
+    gameData,
+    hydrateFromCloud,
+  ]);
 
   useEffect(() => {
     if (!hydrated || !gameData || !isTournamentActive) return;
@@ -53,14 +119,36 @@ function RoomViewInner({ roomId }: { roomId: RoomId }) {
   ]);
 
   const roomTeams = useMemo(() => getRoomTeams(room, teams), [room, teams]);
-  const buzzUrl = origin
-    ? `${origin}/buzz?room=${encodeURIComponent(roomId)}`
-    : "";
+  const effectiveTournamentId = tournamentId ?? tournamentParam;
+  const buzzUrl =
+    origin && effectiveTournamentId
+      ? `${origin}${buildBuzzHref(roomId, effectiveTournamentId)}`
+      : origin
+        ? `${origin}/buzz?room=${encodeURIComponent(roomId)}`
+        : "";
 
-  if (!hydrated) {
+  if (!hydrated || cloudStatus === "loading") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-jeopardy-blue-dark">
-        <p className="text-jeopardy-gold">Loading room...</p>
+        <p className="text-jeopardy-gold">
+          {cloudStatus === "loading"
+            ? "Loading tournament from cloud..."
+            : "Loading room..."}
+        </p>
+      </main>
+    );
+  }
+
+  if (cloudStatus === "error") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-jeopardy-blue-dark px-6 text-center">
+        <p className="text-xl text-jeopardy-gold">{cloudError}</p>
+        <Link
+          href="/"
+          className="rounded-lg bg-jeopardy-gold px-6 py-3 font-bold text-jeopardy-blue-dark"
+        >
+          Master Dashboard
+        </Link>
       </main>
     );
   }
@@ -70,6 +158,11 @@ function RoomViewInner({ roomId }: { roomId: RoomId }) {
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-jeopardy-blue-dark px-6 text-center">
         <p className="text-xl text-jeopardy-gold">
           ტურნირი ჯერ არ შექმნილა / Tournament not created
+        </p>
+        <p className="max-w-md text-sm text-white/60">
+          Open a room link with{" "}
+          <code className="text-jeopardy-gold">?t=TOURNAMENT-…</code> from the
+          master dashboard, or create a tournament on this device.
         </p>
         <Link
           href="/"
@@ -97,6 +190,9 @@ function RoomViewInner({ roomId }: { roomId: RoomId }) {
             <h1 className="text-lg font-bold text-white md:text-2xl">
               {gameData.title}
             </h1>
+            {tournamentId && (
+              <p className="font-mono text-[10px] text-white/40">{tournamentId}</p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

@@ -67,7 +67,15 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 }
 
-export function getBuzzerChannelName(roomCode: string): string {
-  const normalized = roomCode.trim().toUpperCase().replace(/\s+/g, "");
-  return `jeopardy-room-${normalized}`;
+export function getBuzzerChannelName(
+  roomCode: string,
+  tournamentId?: string | null
+): string {
+  const room = roomCode.trim().toUpperCase().replace(/\s+/g, "");
+  if (tournamentId && tournamentId.trim()) {
+    const tournament = tournamentId.trim().toUpperCase().replace(/\s+/g, "");
+    // Isolate buzzers per tournament + room across parallel events
+    return `jeopardy-${tournament}-${room}`;
+  }
+  return `jeopardy-room-${room}`;
 }

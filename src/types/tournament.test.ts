@@ -54,5 +54,8 @@ describe("room codes", () => {
   it("builds stable realtime channel names per room", () => {
     expect(getBuzzerChannelName("ROOM-1")).toBe("jeopardy-room-ROOM-1");
     expect(getBuzzerChannelName("room-2")).toBe("jeopardy-room-ROOM-2");
+    expect(getBuzzerChannelName("ROOM-1", "TOURNAMENT-2026-AB12")).toBe(
+      "jeopardy-TOURNAMENT-2026-AB12-ROOM-1"
+    );
   });
 });

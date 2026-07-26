@@ -2,6 +2,12 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { isBoardComplete } from "@/lib/board";
 import { mergeTournamentPersistedState } from "@/lib/tournamentPersist";
+import { saveTournamentSession } from "@/lib/supabase/tournaments";
+import {
+  generateTournamentId,
+  toCloudRooms,
+  type CloudTournamentSession,
+} from "@/types/cloudTournament";
 import type { ActiveQuestion, GameData, TileKey } from "@/types/game";
 import {
   ROOM_IDS,
@@ -36,13 +42,44 @@ function createSafeStorage() {
   });
 }
 
+export type CreateTournamentResult = {
+  ok: boolean;
+  tournamentId?: string;
+  error?: string;
+  warning?: string;
+  offline?: boolean;
+};
+
+function roomsFromCloud(
+  cloud: CloudTournamentSession["rooms"]
+): Record<RoomId, RoomState> {
+  const rooms = {} as Record<RoomId, RoomState>;
+  for (const id of ROOM_IDS) {
+    const config = cloud[id];
+    rooms[id] = {
+      id: config.id,
+      number: config.number,
+      labelKa: config.labelKa,
+      teamIds: config.teamIds,
+      usedTiles: new Set(),
+      activeQuestion: null,
+      isAnswerRevealed: false,
+      isWinnerModalOpen: false,
+      celebrationPlayed: false,
+    };
+  }
+  return rooms;
+}
+
 interface TournamentState {
   gameData: GameData | null;
   teams: TournamentTeam[];
   rooms: Record<RoomId, RoomState>;
   isTournamentActive: boolean;
-  /** Unique id per tournament instance — used to invalidate stale player caches */
+  /** Local device session (player cache invalidation) */
   sessionId: string;
+  /** Cloud tournament id shared across laptops, e.g. TOURNAMENT-2026-AB12 */
+  tournamentId: string | null;
   hasHydrated: boolean;
 
   setHasHydrated: (value: boolean) => void;
@@ -54,7 +91,8 @@ interface TournamentState {
     colorLabelKa: string,
     colorEmoji: string
   ) => void;
-  createTournament: () => void;
+  createTournament: () => Promise<CreateTournamentResult>;
+  hydrateFromCloud: (session: CloudTournamentSession) => void;
   resetTournament: () => void;
 
   openQuestion: (roomId: RoomId, question: ActiveQuestion) => void;
@@ -95,7 +133,12 @@ function patchRoom(
 
 function createInitialState(): Pick<
   TournamentState,
-  "gameData" | "teams" | "rooms" | "isTournamentActive" | "sessionId"
+  | "gameData"
+  | "teams"
+  | "rooms"
+  | "isTournamentActive"
+  | "sessionId"
+  | "tournamentId"
 > {
   const teams = createDefaultTeams();
   return {
@@ -104,6 +147,7 @@ function createInitialState(): Pick<
     rooms: createEmptyRooms(teams),
     isTournamentActive: false,
     sessionId: createSessionId(),
+    tournamentId: null,
   };
 }
 
@@ -133,15 +177,65 @@ export const useTournamentStore = create<TournamentState>()(
           ),
         })),
 
-      createTournament: () => {
+      createTournament: async () => {
         const { gameData, teams } = get();
-        if (!gameData || teams.length !== 8) return;
+        if (!gameData || teams.length !== 8) {
+          return {
+            ok: false,
+            error: "Upload a pack and configure 8 teams first.",
+          };
+        }
 
         const resetTeams = teams.map((team) => ({ ...team, score: 0 }));
+        const rooms = createEmptyRooms(resetTeams);
+        const tournamentId = generateTournamentId();
+        const sessionId = createSessionId();
+
         set({
           teams: resetTeams,
-          rooms: createEmptyRooms(resetTeams),
+          rooms,
           isTournamentActive: true,
+          sessionId,
+          tournamentId,
+        });
+
+        const cloud = await saveTournamentSession({
+          id: tournamentId,
+          gameData,
+          teams: resetTeams,
+          rooms: toCloudRooms(rooms),
+        });
+
+        if (!cloud.ok) {
+          return {
+            ok: true,
+            tournamentId,
+            offline: cloud.offline,
+            warning: cloud.error,
+          };
+        }
+
+        return { ok: true, tournamentId };
+      },
+
+      hydrateFromCloud: (session) => {
+        const current = get();
+        // Same tournament already active on this device — keep local room progress
+        if (
+          current.isTournamentActive &&
+          current.tournamentId === session.id &&
+          current.gameData
+        ) {
+          return;
+        }
+
+        const teams = session.teams.map((team) => ({ ...team, score: 0 }));
+        set({
+          gameData: session.gameData,
+          teams,
+          rooms: roomsFromCloud(session.rooms),
+          isTournamentActive: true,
+          tournamentId: session.id,
           sessionId: createSessionId(),
         });
       },
@@ -271,6 +365,7 @@ export const useTournamentStore = create<TournamentState>()(
         teams: state.teams,
         isTournamentActive: state.isTournamentActive,
         sessionId: state.sessionId,
+        tournamentId: state.tournamentId,
         rooms: Object.fromEntries(
           ROOM_IDS.map((id) => {
             const room = state.rooms[id];
@@ -294,10 +389,10 @@ export const useTournamentStore = create<TournamentState>()(
           rooms: current.rooms,
           isTournamentActive: current.isTournamentActive,
           sessionId: current.sessionId,
+          tournamentId: current.tournamentId,
           hasHydrated: current.hasHydrated,
         });
 
-        // Preserve action methods from `current` — never replace the full store shape
         return {
           ...current,
           gameData: data.gameData,
@@ -305,6 +400,7 @@ export const useTournamentStore = create<TournamentState>()(
           rooms: data.rooms,
           isTournamentActive: data.isTournamentActive,
           sessionId: data.sessionId,
+          tournamentId: data.tournamentId,
           hasHydrated: data.hasHydrated,
         };
       },
@@ -313,8 +409,6 @@ export const useTournamentStore = create<TournamentState>()(
           console.error("Failed to rehydrate tournament store", error);
           return;
         }
-        // Prefer store API in case partial state was passed
-        useTournamentStore.setState({ hasHydrated: true });
         state?.setHasHydrated?.(true);
       },
     }

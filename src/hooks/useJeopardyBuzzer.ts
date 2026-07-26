@@ -39,6 +39,8 @@ export interface HostRoomSnapshot {
 interface UseJeopardyBuzzerOptions {
   role: BuzzerRole;
   roomCode: string;
+  /** Scopes buzzer channel per cloud tournament when present */
+  tournamentId?: string | null;
   /** Host: current teams for SESSION_SYNC */
   teams?: Team[];
   gameTitle?: string | null;
@@ -89,6 +91,7 @@ export function useJeopardyBuzzer(
   const {
     role,
     roomCode,
+    tournamentId = null,
     teams = [],
     gameTitle = null,
     sessionId: sessionIdProp = "",
@@ -274,7 +277,7 @@ export function useJeopardyBuzzer(
       return;
     }
 
-    const channelName = getBuzzerChannelName(roomCode);
+    const channelName = getBuzzerChannelName(roomCode, tournamentId);
     const channel = supabase.channel(channelName, {
       config: { broadcast: { self: true } },
     });
@@ -376,6 +379,7 @@ export function useJeopardyBuzzer(
   }, [
     enabled,
     roomCode,
+    tournamentId,
     isConfigured,
     role,
     syncSession,

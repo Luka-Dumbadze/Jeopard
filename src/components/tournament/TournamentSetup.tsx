@@ -12,6 +12,10 @@ import {
 } from "@/lib/validateGameData";
 import { useTournamentStore } from "@/store/tournamentStore";
 import {
+  buildBuzzHref,
+  buildRoomHref,
+} from "@/types/cloudTournament";
+import {
   DEFAULT_TEAM_PRESETS,
   ROOM_IDS,
   getRoomTeams,
@@ -25,6 +29,7 @@ export default function TournamentSetup() {
   const gameData = useTournamentStore((state) => state.gameData);
   const teams = useTournamentStore((state) => state.teams);
   const rooms = useTournamentStore((state) => state.rooms);
+  const tournamentId = useTournamentStore((state) => state.tournamentId);
   const isTournamentActive = useTournamentStore(
     (state) => state.isTournamentActive
   );
@@ -35,6 +40,7 @@ export default function TournamentSetup() {
   const resetTournament = useTournamentStore((state) => state.resetTournament);
 
   const [error, setError] = useState<string | null>(null);
+  const [cloudWarning, setCloudWarning] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [origin, setOrigin] = useState("");
   const [copiedRoom, setCopiedRoom] = useState<RoomId | null>(null);
@@ -94,12 +100,29 @@ export default function TournamentSetup() {
   const handleCreate = () => {
     if (!canCreate || createLocked) return;
     runCreate(() => {
-      createTournament();
+      void (async () => {
+        setError(null);
+        setCloudWarning(null);
+        const result = await createTournament();
+        if (!result.ok) {
+          setError(result.error ?? "Could not create tournament.");
+          return;
+        }
+        if (result.warning) {
+          setCloudWarning(result.warning);
+        }
+      })();
     });
   };
 
+  const roomPath = (roomId: RoomId) =>
+    tournamentId ? buildRoomHref(roomId, tournamentId) : `/room/${roomId}`;
+
+  const buzzPath = (roomId: RoomId) =>
+    tournamentId ? buildBuzzHref(roomId, tournamentId) : `/buzz?room=${roomId}`;
+
   const copyLink = async (roomId: RoomId) => {
-    const url = `${origin}/room/${roomId}`;
+    const url = `${origin}${roomPath(roomId)}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopiedRoom(roomId);
@@ -136,6 +159,11 @@ export default function TournamentSetup() {
               <p className="mt-2 text-white/70">
                 4 პარალელური ოთახი · 8 გუნდი · 1v1 მატჩები
               </p>
+              {tournamentId && (
+                <p className="mt-2 font-mono text-sm text-jeopardy-gold/80">
+                  {tournamentId}
+                </p>
+              )}
             </div>
             <button
               type="button"
@@ -146,12 +174,19 @@ export default function TournamentSetup() {
             </button>
           </div>
 
+          {cloudWarning && (
+            <p className="mb-5 rounded-lg bg-amber-900/40 px-4 py-3 text-sm text-amber-100">
+              {cloudWarning} Room links still work on this laptop; remote
+              facilitators need Supabase configured to hydrate.
+            </p>
+          )}
+
           <div className="grid gap-5 md:grid-cols-2">
             {pairings.map(({ room, teamA, teamB }) => {
-              const roomUrl = origin ? `${origin}/room/${room.id}` : "";
-              const buzzUrl = origin
-                ? `${origin}/buzz?room=${encodeURIComponent(room.id)}`
-                : "";
+              const roomHref = roomPath(room.id);
+              const buzzHref = buzzPath(room.id);
+              const roomUrl = origin ? `${origin}${roomHref}` : "";
+              const buzzUrl = origin ? `${origin}${buzzHref}` : "";
 
               return (
                 <motion.article
@@ -171,7 +206,7 @@ export default function TournamentSetup() {
                         {teamB.colorEmoji} {teamB.name}
                       </p>
                       <p className="mt-2 font-mono text-xs text-white/50">
-                        {room.id}
+                        {roomHref}
                       </p>
                     </div>
                     {buzzUrl && (
@@ -183,7 +218,7 @@ export default function TournamentSetup() {
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Link
-                      href={`/room/${room.id}`}
+                      href={roomHref}
                       className="rounded-lg bg-jeopardy-gold px-4 py-2 text-sm font-bold text-jeopardy-blue-dark hover:bg-yellow-300"
                     >
                       Open Projector
@@ -197,7 +232,7 @@ export default function TournamentSetup() {
                     </button>
                     {roomUrl && (
                       <a
-                        href={buzzUrl}
+                        href={buzzHref}
                         target="_blank"
                         rel="noreferrer"
                         className="rounded-lg border border-white/20 px-4 py-2 text-sm font-bold text-white/70 hover:bg-white/5"

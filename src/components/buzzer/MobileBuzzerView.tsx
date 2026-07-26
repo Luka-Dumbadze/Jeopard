@@ -12,9 +12,13 @@ import { normalizeRoomCode } from "@/types/buzzer";
 
 interface MobileBuzzerViewProps {
   initialRoom: string;
+  tournamentId?: string | null;
 }
 
-export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps) {
+export default function MobileBuzzerView({
+  initialRoom,
+  tournamentId = null,
+}: MobileBuzzerViewProps) {
   const roomCode = useMemo(
     () => normalizeRoomCode(initialRoom || ""),
     [initialRoom]
@@ -45,6 +49,7 @@ export default function MobileBuzzerView({ initialRoom }: MobileBuzzerViewProps)
   } = useJeopardyBuzzer({
     role: "player",
     roomCode,
+    tournamentId,
     enabled: Boolean(roomCode),
     playerTeamId,
     playerTeamName,

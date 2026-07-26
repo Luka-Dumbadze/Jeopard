@@ -16,6 +16,7 @@ export interface TournamentPersistedSlice {
   teams?: TournamentTeam[];
   isTournamentActive?: boolean;
   sessionId?: string;
+  tournamentId?: string | null;
   rooms?: Record<RoomId, PersistedRoom>;
 }
 
@@ -25,6 +26,7 @@ export interface TournamentMergeCurrent {
   rooms: Record<RoomId, RoomState>;
   isTournamentActive: boolean;
   sessionId: string;
+  tournamentId: string | null;
   hasHydrated: boolean;
 }
 
@@ -75,6 +77,8 @@ export function mergeTournamentPersistedState(
         ? data.isTournamentActive
         : current.isTournamentActive,
     sessionId: data.sessionId ?? current.sessionId,
+    tournamentId:
+      data.tournamentId !== undefined ? data.tournamentId : current.tournamentId,
     hasHydrated: current.hasHydrated,
   };
 }

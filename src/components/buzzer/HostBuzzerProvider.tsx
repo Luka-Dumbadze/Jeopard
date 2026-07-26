@@ -18,6 +18,7 @@ export function HostBuzzerProvider({ children }: { children: ReactNode }) {
   const room = useTournamentStore((state) => state.rooms[roomId]);
   const teams = useTournamentStore((state) => state.teams);
   const sessionId = useTournamentStore((state) => state.sessionId);
+  const tournamentId = useTournamentStore((state) => state.tournamentId);
   const gameTitle = useTournamentStore(
     (state) => state.gameData?.title ?? null
   );
@@ -61,6 +62,7 @@ export function HostBuzzerProvider({ children }: { children: ReactNode }) {
   const buzzer = useJeopardyBuzzer({
     role: "host",
     roomCode: roomId,
+    tournamentId,
     teams: roomTeams,
     gameTitle,
     sessionId,

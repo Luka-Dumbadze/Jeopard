@@ -166,6 +166,7 @@ describe("localStorage hydration merge", () => {
     rooms: createEmptyRooms(teams),
     isTournamentActive: false,
     sessionId: "session-current",
+    tournamentId: null as string | null,
     hasHydrated: false,
   };
 
@@ -229,22 +230,26 @@ describe("tournament store concurrency & isolation", () => {
     useTournamentStore.getState().resetTournament();
   });
 
-  it("createTournament is a no-op without gameData (idempotent guard)", () => {
-    useTournamentStore.getState().createTournament();
+  it("createTournament is a no-op without gameData (idempotent guard)", async () => {
+    const result = await useTournamentStore.getState().createTournament();
+    expect(result.ok).toBe(false);
     expect(useTournamentStore.getState().isTournamentActive).toBe(false);
   });
 
-  it("createTournament activates only at full 8-team capacity", () => {
+  it("createTournament activates only at full 8-team capacity", async () => {
     useTournamentStore.getState().setGameData(fiveByFive);
-    useTournamentStore.getState().createTournament();
+    const result = await useTournamentStore.getState().createTournament();
+    expect(result.ok).toBe(true);
+    expect(result.tournamentId).toMatch(/^TOURNAMENT-\d{4}-[A-Z0-9]+$/i);
     expect(useTournamentStore.getState().isTournamentActive).toBe(true);
+    expect(useTournamentStore.getState().tournamentId).toBe(result.tournamentId);
     expect(useTournamentStore.getState().teams).toHaveLength(8);
   });
 
-  it("scoring in ROOM-1 does not affect ROOM-2 opponent scores isolation of teams list updates", () => {
+  it("scoring in ROOM-1 does not affect ROOM-2 opponent scores isolation of teams list updates", async () => {
     const store = useTournamentStore.getState();
     store.setGameData(fiveByFive);
-    store.createTournament();
+    await store.createTournament();
 
     const room1 = useTournamentStore.getState().rooms["ROOM-1"];
     const room2 = useTournamentStore.getState().rooms["ROOM-2"];
@@ -260,10 +265,10 @@ describe("tournament store concurrency & isolation", () => {
     expect(teams.find((t) => t.id === teamRoom2)?.score).toBe(0);
   });
 
-  it("usedTiles remain isolated across rooms; closeQuestion is idempotent without active question", () => {
+  it("usedTiles remain isolated across rooms; closeQuestion is idempotent without active question", async () => {
     const store = useTournamentStore.getState();
     store.setGameData(fiveByFive);
-    store.createTournament();
+    await store.createTournament();
 
     store.openQuestion("ROOM-1", {
       categoryIndex: 0,
@@ -284,10 +289,10 @@ describe("tournament store concurrency & isolation", () => {
     ).toBeNull();
   });
 
-  it("awardTileValue is idempotent-safe when no active question", () => {
+  it("awardTileValue is idempotent-safe when no active question", async () => {
     const store = useTournamentStore.getState();
     store.setGameData(fiveByFive);
-    store.createTournament();
+    await store.createTournament();
     const teamId = useTournamentStore.getState().rooms["ROOM-1"].teamIds[0];
     const before = useTournamentStore
       .getState()
@@ -297,6 +302,104 @@ describe("tournament store concurrency & isolation", () => {
     expect(
       useTournamentStore.getState().teams.find((t) => t.id === teamId)?.score
     ).toBe(before);
+  });
+
+  it("hydrateFromCloud isolates fresh room state and preserves local progress for same id", async () => {
+    const store = useTournamentStore.getState();
+    store.setGameData(fiveByFive);
+    await store.createTournament();
+    const tournamentId = useTournamentStore.getState().tournamentId!;
+    const teamsSnapshot = useTournamentStore.getState().teams;
+    const roomsSnapshot = useTournamentStore.getState().rooms;
+
+    store.openQuestion("ROOM-1", {
+      categoryIndex: 0,
+      questionIndex: 0,
+      question: fiveByFive.categories[0].questions[0],
+    });
+    store.closeQuestion("ROOM-1");
+    store.incrementScore("ROOM-1", roomsSnapshot["ROOM-1"].teamIds[0], 200);
+
+    // Same tournament id → keep local progress
+    store.hydrateFromCloud({
+      id: tournamentId,
+      gameData: fiveByFive,
+      teams: teamsSnapshot,
+      rooms: {
+        "ROOM-1": {
+          id: "ROOM-1",
+          number: 1,
+          labelKa: roomsSnapshot["ROOM-1"].labelKa,
+          teamIds: [...roomsSnapshot["ROOM-1"].teamIds] as [string, string],
+        },
+        "ROOM-2": {
+          id: "ROOM-2",
+          number: 2,
+          labelKa: roomsSnapshot["ROOM-2"].labelKa,
+          teamIds: [...roomsSnapshot["ROOM-2"].teamIds] as [string, string],
+        },
+        "ROOM-3": {
+          id: "ROOM-3",
+          number: 3,
+          labelKa: roomsSnapshot["ROOM-3"].labelKa,
+          teamIds: [...roomsSnapshot["ROOM-3"].teamIds] as [string, string],
+        },
+        "ROOM-4": {
+          id: "ROOM-4",
+          number: 4,
+          labelKa: roomsSnapshot["ROOM-4"].labelKa,
+          teamIds: [...roomsSnapshot["ROOM-4"].teamIds] as [string, string],
+        },
+      },
+    });
+
+    expect(
+      useTournamentStore.getState().rooms["ROOM-1"].usedTiles.has("0-0")
+    ).toBe(true);
+
+    const cloudTeams = createDefaultTeams();
+    // Different tournament → fresh isolated boards
+    store.hydrateFromCloud({
+      id: "TOURNAMENT-2026-ZZZZ",
+      gameData: fiveByFive,
+      teams: cloudTeams.map((t) => ({ ...t, score: 0 })),
+      rooms: {
+        "ROOM-1": {
+          id: "ROOM-1",
+          number: 1,
+          labelKa: "ოთახი 1",
+          teamIds: [cloudTeams[0].id, cloudTeams[1].id],
+        },
+        "ROOM-2": {
+          id: "ROOM-2",
+          number: 2,
+          labelKa: "ოთახი 2",
+          teamIds: [cloudTeams[2].id, cloudTeams[3].id],
+        },
+        "ROOM-3": {
+          id: "ROOM-3",
+          number: 3,
+          labelKa: "ოთახი 3",
+          teamIds: [cloudTeams[4].id, cloudTeams[5].id],
+        },
+        "ROOM-4": {
+          id: "ROOM-4",
+          number: 4,
+          labelKa: "ოთახი 4",
+          teamIds: [cloudTeams[6].id, cloudTeams[7].id],
+        },
+      },
+    });
+
+    expect(useTournamentStore.getState().tournamentId).toBe(
+      "TOURNAMENT-2026-ZZZZ"
+    );
+    expect(useTournamentStore.getState().rooms["ROOM-1"].usedTiles.size).toBe(
+      0
+    );
+    expect(useTournamentStore.getState().rooms["ROOM-2"].usedTiles.size).toBe(
+      0
+    );
   });
 
   it("getRoomTeamsOrEmpty returns [] for broken assignments", () => {

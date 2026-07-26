@@ -5,6 +5,7 @@ import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { motion } from "framer-motion";
 import { useActionLock } from "@/hooks/useActionLock";
+import { useHydration } from "@/hooks/useHydration";
 import {
   GameDataValidationError,
   parseGameFile,
@@ -20,8 +21,7 @@ import {
 export default function TournamentSetup() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hasHydrated = useTournamentStore((state) => state.hasHydrated);
-  const setHasHydrated = useTournamentStore((state) => state.setHasHydrated);
+  const hydrated = useHydration();
   const gameData = useTournamentStore((state) => state.gameData);
   const teams = useTournamentStore((state) => state.teams);
   const rooms = useTournamentStore((state) => state.rooms);
@@ -51,15 +51,6 @@ export default function TournamentSetup() {
       }
     };
   }, []);
-
-  useEffect(() => {
-    const finish = () => setHasHydrated(true);
-    if (useTournamentStore.persist.hasHydrated()) {
-      finish();
-      return;
-    }
-    return useTournamentStore.persist.onFinishHydration(finish);
-  }, [setHasHydrated]);
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -122,7 +113,7 @@ export default function TournamentSetup() {
     }
   };
 
-  if (!hasHydrated) {
+  if (!hydrated) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-jeopardy-blue-dark">
         <p className="text-jeopardy-gold">Loading...</p>

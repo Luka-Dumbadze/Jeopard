@@ -9,6 +9,7 @@ import QuestionModal from "@/components/modal/QuestionModal";
 import WinnerModal from "@/components/modal/WinnerModal";
 import { RoomProvider } from "@/components/room/RoomProvider";
 import Scoreboard from "@/components/scoreboard/Scoreboard";
+import { useHydration } from "@/hooks/useHydration";
 import { isBoardComplete } from "@/lib/board";
 import { useTournamentStore } from "@/store/tournamentStore";
 import {
@@ -18,8 +19,7 @@ import {
 } from "@/types/tournament";
 
 function RoomViewInner({ roomId }: { roomId: RoomId }) {
-  const hasHydrated = useTournamentStore((state) => state.hasHydrated);
-  const setHasHydrated = useTournamentStore((state) => state.setHasHydrated);
+  const hydrated = useHydration();
   const gameData = useTournamentStore((state) => state.gameData);
   const isTournamentActive = useTournamentStore(
     (state) => state.isTournamentActive
@@ -37,22 +37,13 @@ function RoomViewInner({ roomId }: { roomId: RoomId }) {
   }, []);
 
   useEffect(() => {
-    const finish = () => setHasHydrated(true);
-    if (useTournamentStore.persist.hasHydrated()) {
-      finish();
-      return;
-    }
-    return useTournamentStore.persist.onFinishHydration(finish);
-  }, [setHasHydrated]);
-
-  useEffect(() => {
-    if (!hasHydrated || !gameData || !isTournamentActive) return;
+    if (!hydrated || !gameData || !isTournamentActive) return;
     if (room.celebrationPlayed) return;
     if (isBoardComplete(gameData, room.usedTiles)) {
       openWinnerModal(roomId);
     }
   }, [
-    hasHydrated,
+    hydrated,
     gameData,
     isTournamentActive,
     room.celebrationPlayed,
@@ -66,7 +57,7 @@ function RoomViewInner({ roomId }: { roomId: RoomId }) {
     ? `${origin}/buzz?room=${encodeURIComponent(roomId)}`
     : "";
 
-  if (!hasHydrated) {
+  if (!hydrated) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-jeopardy-blue-dark">
         <p className="text-jeopardy-gold">Loading room...</p>

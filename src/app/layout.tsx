@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Libre_Baskerville } from "next/font/google";
+import HydrationProvider from "@/components/HydrationProvider";
 import "./globals.css";
 
 const jeopardyFont = Libre_Baskerville({
@@ -21,7 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${jeopardyFont.variable} antialiased min-h-screen`}>
-        {children}
+        <HydrationProvider>{children}</HydrationProvider>
       </body>
     </html>
   );

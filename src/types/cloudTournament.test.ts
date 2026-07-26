@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getAssignedRoomTeams } from "@/lib/supabase/tournaments";
 import {
   buildBuzzHref,
   buildRoomHref,
@@ -43,5 +44,25 @@ describe("cloud tournament helpers", () => {
     });
     expect(cloud["ROOM-1"]).not.toHaveProperty("usedTiles");
     expect(cloud["ROOM-1"]).not.toHaveProperty("activeQuestion");
+  });
+
+  it("extracts exactly 2 assigned teams for a room from cloud session", () => {
+    const teams = createDefaultTeams();
+    const rooms = createEmptyRooms(teams);
+    const session = {
+      id: "TOURNAMENT-2026-TEST",
+      gameData: { title: "T", categories: [] },
+      teams,
+      rooms: toCloudRooms(rooms),
+    };
+
+    const room1 = getAssignedRoomTeams(session, "ROOM-1");
+    expect(room1).toHaveLength(2);
+    expect(room1[0].id).toBe(teams[0].id);
+    expect(room1[1].id).toBe(teams[1].id);
+
+    const room4 = getAssignedRoomTeams(session, "ROOM-4");
+    expect(room4.map((t) => t.id)).toEqual([teams[6].id, teams[7].id]);
+    expect(getAssignedRoomTeams(session, "ROOM-9")).toEqual([]);
   });
 });

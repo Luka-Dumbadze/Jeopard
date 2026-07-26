@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useCallback, useContext, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  type ReactNode,
+} from "react";
+import { useSearchParams } from "next/navigation";
 import {
   useJeopardyBuzzer,
   type HostRoomSnapshot,
@@ -8,6 +15,7 @@ import {
 } from "@/hooks/useJeopardyBuzzer";
 import { useRoomId } from "@/components/room/RoomProvider";
 import { useTournamentStore } from "@/store/tournamentStore";
+import { isTournamentId } from "@/types/cloudTournament";
 import { getRoomTeamsOrEmpty } from "@/types/tournament";
 import type { QuestionOpenedPayload } from "@/types/buzzer";
 
@@ -15,14 +23,30 @@ const HostBuzzerContext = createContext<UseJeopardyBuzzerResult | null>(null);
 
 export function HostBuzzerProvider({ children }: { children: ReactNode }) {
   const roomId = useRoomId();
+  const searchParams = useSearchParams();
+  const tournamentParam = searchParams.get("t");
+
   const room = useTournamentStore((state) => state.rooms[roomId]);
   const teams = useTournamentStore((state) => state.teams);
-  const sessionId = useTournamentStore((state) => state.sessionId);
-  const tournamentId = useTournamentStore((state) => state.tournamentId);
+  const localSessionId = useTournamentStore((state) => state.sessionId);
+  const storeTournamentId = useTournamentStore((state) => state.tournamentId);
   const gameTitle = useTournamentStore(
     (state) => state.gameData?.title ?? null
   );
   const gameData = useTournamentStore((state) => state.gameData);
+
+  const tournamentId = useMemo(() => {
+    if (storeTournamentId && isTournamentId(storeTournamentId)) {
+      return storeTournamentId;
+    }
+    if (isTournamentId(tournamentParam)) {
+      return tournamentParam!.trim();
+    }
+    return storeTournamentId;
+  }, [storeTournamentId, tournamentParam]);
+
+  // Stable across devices: prefer cloud tournament id for player cache sync
+  const buzzerSessionId = tournamentId ?? localSessionId;
 
   const roomTeams = getRoomTeamsOrEmpty(room, teams);
 
@@ -30,6 +54,12 @@ export function HostBuzzerProvider({ children }: { children: ReactNode }) {
     const latest = useTournamentStore.getState();
     const latestRoom = latest.rooms[roomId];
     const latestTeams = getRoomTeamsOrEmpty(latestRoom, latest.teams);
+    const latestTournamentId =
+      latest.tournamentId && isTournamentId(latest.tournamentId)
+        ? latest.tournamentId
+        : isTournamentId(tournamentParam)
+          ? tournamentParam!.trim()
+          : latest.tournamentId;
 
     let activeQuestion: QuestionOpenedPayload | null = null;
     if (latestRoom.activeQuestion && latest.gameData) {
@@ -44,20 +74,17 @@ export function HostBuzzerProvider({ children }: { children: ReactNode }) {
       };
     }
 
-    // Buzz open state: question is open and answer not yet closed
     const buzzersOpen = Boolean(latestRoom.activeQuestion);
 
     return {
-      sessionId: latest.sessionId,
+      sessionId: latestTournamentId ?? latest.sessionId,
       teams: latestTeams,
       gameTitle: latest.gameData?.title ?? null,
       activeQuestion,
       buzzersOpen,
-      // Host buzz lock lives in the hook; snapshot uses active question only.
-      // Concurrent buzz winner is re-broadcast via BUZZERS_LOCKED separately.
       buzzedPlayer: null,
     };
-  }, [roomId]);
+  }, [roomId, tournamentParam]);
 
   const buzzer = useJeopardyBuzzer({
     role: "host",
@@ -65,7 +92,7 @@ export function HostBuzzerProvider({ children }: { children: ReactNode }) {
     tournamentId,
     teams: roomTeams,
     gameTitle,
-    sessionId,
+    sessionId: buzzerSessionId,
     enabled: Boolean(roomId) && Boolean(gameData),
     getHostSnapshot,
   });

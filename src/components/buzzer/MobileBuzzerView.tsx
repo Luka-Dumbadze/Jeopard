@@ -8,7 +8,14 @@ import {
   resolvePlayerBuzzerState,
   savePlayerBuzzerState,
 } from "@/lib/playerLocalState";
+import {
+  fetchLatestTournamentSession,
+  fetchTournamentSession,
+  getAssignedRoomTeams,
+} from "@/lib/supabase/tournaments";
 import { normalizeRoomCode } from "@/types/buzzer";
+import { isTournamentId } from "@/types/cloudTournament";
+import type { Team } from "@/types/game";
 
 interface MobileBuzzerViewProps {
   initialRoom: string;
@@ -30,9 +37,67 @@ export default function MobileBuzzerView({
   const [isBuzzing, setIsBuzzing] = useState(false);
   const [sessionMismatchNotice, setSessionMismatchNotice] = useState(false);
 
+  const [dbTeams, setDbTeams] = useState<Team[]>([]);
+  const [resolvedTournamentId, setResolvedTournamentId] = useState<string | null>(
+    isTournamentId(tournamentId) ? tournamentId!.trim() : null
+  );
+  const [teamsLoading, setTeamsLoading] = useState(true);
+  const [teamsError, setTeamsError] = useState<string | null>(null);
+
   useEffect(() => {
     installAudioUnlockListener();
   }, []);
+
+  // Direct Supabase DB hydration — do not wait for host SESSION_SYNC
+  useEffect(() => {
+    if (!roomCode) {
+      setTeamsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setTeamsLoading(true);
+    setTeamsError(null);
+
+    void (async () => {
+      try {
+        const session = isTournamentId(tournamentId)
+          ? await fetchTournamentSession(tournamentId!.trim())
+          : await fetchLatestTournamentSession();
+
+        if (cancelled) return;
+
+        if (!session) {
+          setDbTeams([]);
+          setTeamsError(
+            isTournamentId(tournamentId)
+              ? "Tournament not found in cloud."
+              : "No active tournament found. Ask the host to share a buzz link with ?t=…"
+          );
+          setTeamsLoading(false);
+          return;
+        }
+
+        const roomTeams = getAssignedRoomTeams(session, roomCode);
+        setResolvedTournamentId(session.id);
+        setDbTeams(roomTeams);
+        if (roomTeams.length === 0) {
+          setTeamsError(`No teams assigned to ${roomCode} in this tournament.`);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        console.error("[buzz] team hydrate failed", err);
+        setTeamsError("Could not load teams from cloud.");
+        setDbTeams([]);
+      } finally {
+        if (!cancelled) setTeamsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [roomCode, tournamentId]);
 
   const playerTeamId = joined ? selectedTeamId : null;
   const playerTeamName = joined ? selectedTeamName : null;
@@ -49,19 +114,25 @@ export default function MobileBuzzerView({
   } = useJeopardyBuzzer({
     role: "player",
     roomCode,
-    tournamentId,
+    tournamentId: resolvedTournamentId,
     enabled: Boolean(roomCode),
     playerTeamId,
     playerTeamName,
   });
 
+  // Prefer live host sync; fall back to DB-hydrated room teams
+  const displayTeams = sessionTeams.length > 0 ? sessionTeams : dbTeams;
+
+  // Prefer host sessionId; fall back to tournament id so join works before sync
+  const effectiveSessionId = sessionId ?? resolvedTournamentId;
+
   // Stale localStorage invalidation when tournament session changes
   useEffect(() => {
-    if (!roomCode || !sessionId) return;
+    if (!roomCode || !effectiveSessionId) return;
 
     const { state, clearedDueToMismatch } = resolvePlayerBuzzerState(
       roomCode,
-      sessionId
+      effectiveSessionId
     );
 
     if (clearedDueToMismatch) {
@@ -78,7 +149,7 @@ export default function MobileBuzzerView({
     setSelectedTeamName(state.teamName);
     setJoined(true);
     setSessionMismatchNotice(false);
-  }, [roomCode, sessionId]);
+  }, [roomCode, effectiveSessionId]);
 
   // Reset buzz lock when host unlocks / new question
   useEffect(() => {
@@ -91,9 +162,11 @@ export default function MobileBuzzerView({
   const canJoin = roomCode.length > 0 && Boolean(selectedTeamId);
 
   const handleJoin = () => {
-    if (!canJoin || !selectedTeamId || !selectedTeamName || !sessionId) return;
+    if (!canJoin || !selectedTeamId || !selectedTeamName || !effectiveSessionId) {
+      return;
+    }
     savePlayerBuzzerState({
-      sessionId,
+      sessionId: effectiveSessionId,
       roomId: roomCode,
       teamId: selectedTeamId,
       teamName: selectedTeamName,
@@ -124,7 +197,9 @@ export default function MobileBuzzerView({
         <h1 className="text-2xl font-bold text-jeopardy-gold">Join a Room</h1>
         <p className="mt-3 text-white/70">
           Scan the room QR or open{" "}
-          <code className="text-jeopardy-gold">/buzz?room=ROOM-1</code>
+          <code className="text-jeopardy-gold">
+            /buzz?room=ROOM-1&amp;t=TOURNAMENT-…
+          </code>
         </p>
       </main>
     );
@@ -147,13 +222,20 @@ export default function MobileBuzzerView({
         <p className="text-center text-xs font-bold uppercase tracking-[0.25em] text-jeopardy-gold/70">
           {roomCode}
         </p>
+        {resolvedTournamentId && (
+          <p className="mt-1 text-center font-mono text-[10px] text-white/40">
+            {resolvedTournamentId}
+          </p>
+        )}
         <h1 className="mt-2 text-center text-3xl font-bold text-jeopardy-gold">
           აირჩიე გუნდი
         </h1>
         <p className="mt-2 text-center text-sm text-white/60">
-          {isConnected
-            ? "Connected — only this room's 2 teams are listed"
-            : "Connecting to realtime room…"}
+          {teamsLoading
+            ? "Loading teams from cloud…"
+            : isConnected
+              ? "Connected — only this room's 2 teams are listed"
+              : "Connecting to realtime room…"}
         </p>
 
         {sessionMismatchNotice && (
@@ -162,13 +244,23 @@ export default function MobileBuzzerView({
           </p>
         )}
 
+        {teamsError && displayTeams.length === 0 && (
+          <p className="mt-4 rounded-lg bg-red-900/40 px-3 py-2 text-center text-sm text-red-100">
+            {teamsError}
+          </p>
+        )}
+
         <div className="mt-8 space-y-3">
-          {sessionTeams.length === 0 ? (
+          {teamsLoading && displayTeams.length === 0 ? (
+            <p className="rounded-xl bg-black/30 px-4 py-6 text-center text-sm text-white/60">
+              Loading teams…
+            </p>
+          ) : displayTeams.length === 0 ? (
             <p className="rounded-xl bg-black/30 px-4 py-6 text-center text-sm text-white/60">
               Waiting for host projector to sync teams…
             </p>
           ) : (
-            sessionTeams.map((team) => (
+            displayTeams.map((team) => (
               <button
                 key={team.id}
                 type="button"
@@ -196,7 +288,7 @@ export default function MobileBuzzerView({
 
         <button
           type="button"
-          disabled={!canJoin || !sessionId}
+          disabled={!canJoin || !effectiveSessionId}
           onClick={handleJoin}
           className="mt-8 rounded-xl bg-jeopardy-gold py-4 text-lg font-bold text-jeopardy-blue-dark transition enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
         >

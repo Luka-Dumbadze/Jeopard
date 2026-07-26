@@ -119,7 +119,11 @@ function RoomViewInner({ roomId }: { roomId: RoomId }) {
   ]);
 
   const roomTeams = useMemo(() => getRoomTeams(room, teams), [room, teams]);
-  const effectiveTournamentId = tournamentId ?? tournamentParam;
+  const effectiveTournamentId =
+    (tournamentId && isTournamentId(tournamentId) ? tournamentId : null) ??
+    (isTournamentId(tournamentParam) ? tournamentParam!.trim() : null);
+
+  // QR must always include both room + tournament when available
   const buzzUrl =
     origin && effectiveTournamentId
       ? `${origin}${buildBuzzHref(roomId, effectiveTournamentId)}`
